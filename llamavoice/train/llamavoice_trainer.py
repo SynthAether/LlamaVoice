@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from functools import partial
 import torch
 import torch.nn as nn
 from torch.optim.lr_scheduler import ExponentialLR
@@ -13,21 +14,25 @@ from tqdm import tqdm
 # from utils.mel import mel_spectrogram_torch
 
 from llamavoice.train.tts_trainer import TTSTrainer
-from llamavoice.model import LlamaVoice
+from llamavoice.model import LlamaVoice, LlamaVoiceDiscriminator
+from llamavoice.dataset.processor import Processor as P
+from llamavoice.dataset.dataset import Dataset
+from llamavoice.tokenizer.tokenizer import get_tokenizer
+from torch.utils.data import DataLoader
 
 
 class LlamaVoiceTrainer(TTSTrainer):
     def __init__(self, args, cfg):
+        class _cfg:
+            use_phone = False
+            use_spkid = False
+
+        cfg.preprocess = _cfg
         TTSTrainer.__init__(self, args, cfg)
 
     def _build_model(self):
-        net_g = LlamaVoice(
-            self.cfg.model.text_token_num,
-            self.cfg.preprocess.n_fft // 2 + 1,
-            self.cfg.preprocess.segment_size // self.cfg.preprocess.hop_size,
-            **self.cfg.model,
-        )
-        net_d = MultiPeriodDiscriminator(self.cfg.model.use_spectral_norm)
+        net_g = LlamaVoice(self.cfg)
+        net_d = LlamaVoiceDiscriminator(self.cfg)
         model = {"generator": net_g, "discriminator": net_d}
 
         return model
@@ -36,25 +41,79 @@ class LlamaVoiceTrainer(TTSTrainer):
         return ""
 
     def _build_dataloader(self):
-        sampler = torch.utils.data.distributed.DistributedSampler(
-                train_dataset,
-                num_replicas=self.accelerator.num_processes,
-                rank=self.accelerator.local_process_index,
-                shuffle=True,
-            )
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=self.cfg.train.batch_size,
-            num_workers=self.cfg.train.dataloader.num_worker,
-            pin_memory=self.cfg.train.dataloader.pin_memory,
-            collate_fn=collator,
-            sampler=sampler,
+        train_data = self.args.train_data_list
+        cv_data = self.args.val_data_list
+        C = self.cfg.dataset
+        tokenizer = partial(
+            get_tokenizer,
+            multilingual=C.multilingual,
+            num_languages=C.num_languages,
+            language=C.language,
+            task=C.task,
         )
-        print(
-            f"process {self.accelerator.local_process_index} has {len(train_loader)} batches"
+        allowed_special = C.allowed_special
+        tokenize = partial(
+            P.tokenize, get_tokenizer=tokenizer, allowed_special=allowed_special
         )
+        filter = partial(
+            P.filter,
+            max_length=C.max_length,
+            min_length=C.min_length,
+            token_max_length=C.token_max_length,
+            token_min_length=C.token_min_length,
+        )
+        resample = partial(P.resample, resample_rate=C.sample_rate)
+        shuffle = partial(P.shuffle, shuffle_size=C.shuffle_size)
+        sort = partial(P.sort, sort_size=C.sort_size)
+        batch = partial(
+            P.batch,
+            batch_type=C.batch_type,
+            max_frames_in_batch=C.max_frames_in_batch,
+            batch_size=C.batch_size,
+        )
+        padding = partial(P.padding, use_spk_embedding=False)
 
-        return train_loader, None
+        data_pipeline = [
+            P.parquet_opener,
+            tokenize,
+            filter,
+            resample,
+            shuffle,
+            sort,
+            batch,
+            padding,
+        ]
+
+        train_dataset = Dataset(
+            train_data,
+            data_pipeline=data_pipeline,
+            mode="train",
+            shuffle=True,
+            partition=True,
+        )
+        cv_dataset = Dataset(
+            cv_data,
+            data_pipeline=data_pipeline,
+            mode="train",
+            shuffle=False,
+            partition=False,
+        )
+        # do not use persistent_workers=True, as whisper tokenizer opens tiktoken file each time when the for loop starts
+        train_data_loader = DataLoader(
+            train_dataset,
+            batch_size=None,
+            pin_memory=self.cfg.train.dataloader.pin_memory,
+            num_workers=self.cfg.train.dataloader.num_worker,
+            prefetch_factor=C.prefetch,
+        )
+        cv_data_loader = DataLoader(
+            cv_dataset,
+            batch_size=None,
+            pin_memory=self.cfg.train.dataloader.pin_memory,
+            num_workers=self.cfg.train.dataloader.num_worker,
+            prefetch_factor=C.prefetch,
+        )
+        return train_data_loader, cv_data_loader
 
     def _build_optimizer(self):
         optimizer_g = torch.optim.AdamW(
@@ -452,16 +511,21 @@ class LlamaVoiceTrainer(TTSTrainer):
 
         return epoch_sum_loss, epoch_losses
 
+
 def test():
     from llamavoice.model import LlamaVoiceConfig
+
     class args:
         exp_name = "llamavoice"
-        log_level = "debug" 
+        log_level = "debug"
         resume = ""  # The model name to restore
         train_stage = 0
         checkpoint_path = ""  # Checkpoint for resume training or finetuning.
         ar_model_ckpt_dir = ""
         resume_type = "resume"  # [resume, finetune]. Resume training or finetuning
+        # data
+        train_data_list = "LibriTTS/data/dev-clean/parquet/data.list"
+        val_data_list = "LibriTTS/data/dev-clean/parquet/data.list"
 
     c = LlamaVoiceConfig()
     print(c)

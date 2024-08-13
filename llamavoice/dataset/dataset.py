@@ -1,270 +1,249 @@
-# Copyright (c) 2023 Amphion.
+# Copyright (c) 2021 Mobvoi Inc. (authors: Binbin Zhang)
+#               2024 Alibaba Inc (authors: Xiang Lyu)
 #
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import random
+import json
+import math
+from functools import partial
+
 import torch
-from torch.nn.utils.rnn import pad_sequence
-from utils.data_utils import *
-from tqdm import tqdm
-from g2p_en import G2p
-import librosa
-from torch.utils.data import Dataset
-import pandas as pd
-import time
-import io
-
-SAMPLE_RATE = 16000
-# g2p
-from .g2p_processor import G2pProcessor
-
-phonemizer_g2p = G2pProcessor()
+import torch.distributed as dist
+from torch.utils.data import IterableDataset
+from llamavoice.utils.file_utils import read_lists, read_json_lists
 
 
-class VALLEDataset(Dataset):
-    def __init__(self, args):
-        print(f"Initializing VALLEDataset")
-        self.dataset_list = args.dataset_list
+class Processor(IterableDataset):
 
-        print(f"using sampling rate {SAMPLE_RATE}")
+    def __init__(self, source, f, *args, **kw):
+        assert callable(f)
+        self.source = source
+        self.f = f
+        self.args = args
+        self.kw = kw
 
-        # set dataframe clumn name
-        book_col_name = [
-            "ID",
-            "Original_text",
-            "Normalized_text",
-            "Aligned_or_not",
-            "Start_time",
-            "End_time",
-            "Signal_to_noise_ratio",
-        ]
-        trans_col_name = [
-            "ID",
-            "Original_text",
-            "Normalized_text",
-            "Dir_path",
-            "Duration",
-        ]
-        self.metadata_cache = pd.DataFrame(columns=book_col_name)
-        self.trans_cache = pd.DataFrame(columns=trans_col_name)
-        # dataset_cache_dir = args.cache_dir # cache_dir
-        # print(f"args.cache_dir = ", args.cache_dir)
-        # os.makedirs(dataset_cache_dir, exist_ok=True)
+    def set_epoch(self, epoch):
+        self.source.set_epoch(epoch)
 
-        ######## add data dir to dataset2dir ##########
-        self.dataset2dir = {
-            "dev-clean": f"{args.data_dir}/dev-clean",
-            "dev-other": f"{args.data_dir}/dev-other",
-            "test-clean": f"{args.data_dir}/test-clean",
-            "test-other": f"{args.data_dir}/test-other",
-            "train-clean-100": f"{args.data_dir}/train-clean-100",
-            "train-clean-360": f"{args.data_dir}/train-clean-360",
-            "train-other-500": f"{args.data_dir}/train-other-500",
-        }
+    def __iter__(self):
+        """Return an iterator over the source dataset processed by the
+        given processor.
+        """
+        assert self.source is not None
+        assert callable(self.f)
+        return self.f(iter(self.source), *self.args, **self.kw)
 
-        ###### load metadata and transcripts #####
-        for dataset_name in self.dataset_list:
-            print("Initializing dataset: ", dataset_name)
-            # get [book,transcripts,audio] files list
-            self.book_files_list = self.get_metadata_files(
-                self.dataset2dir[dataset_name]
-            )
-            self.trans_files_list = self.get_trans_files(self.dataset2dir[dataset_name])
-
-            ## create metadata_cache (book.tsv file is not filtered, some file is not exist, but contain Duration and Signal_to_noise_ratio)
-            print("reading paths for dataset...")
-            for book_path in tqdm(self.book_files_list):
-                tmp_cache = pd.read_csv(
-                    book_path, sep="\t", names=book_col_name, quoting=3
-                )
-                self.metadata_cache = pd.concat(
-                    [self.metadata_cache, tmp_cache], ignore_index=True
-                )
-            self.metadata_cache.set_index("ID", inplace=True)
-
-            ## create transcripts (the trans.tsv file)
-            print("creating transcripts for dataset...")
-            for trans_path in tqdm(self.trans_files_list):
-                tmp_cache = pd.read_csv(
-                    trans_path, sep="\t", names=trans_col_name, quoting=3
-                )
-                tmp_cache["Dir_path"] = os.path.dirname(trans_path)
-                self.trans_cache = pd.concat(
-                    [self.trans_cache, tmp_cache], ignore_index=True
-                )
-            self.trans_cache.set_index("ID", inplace=True)
-
-            ## calc duration
-            self.trans_cache["Duration"] = (
-                self.metadata_cache.End_time[self.trans_cache.index]
-                - self.metadata_cache.Start_time[self.trans_cache.index]
-            )
-            ## add fullpath
-            # self.trans_cache['Full_path'] = os.path.join(self.dataset2dir[dataset_name],self.trans_cache['ID'])
-
-        # filter_by_duration: filter_out files with duration < 3.0 or > 15.0
-        print(f"Filtering files with duration between 3.0 and 15.0 seconds")
-        print(f"Before filtering: {len(self.trans_cache)}")
-        self.trans_cache = self.trans_cache[
-            (self.trans_cache["Duration"] >= 3.0)
-            & (self.trans_cache["Duration"] <= 15.0)
-        ]
-        print(f"After filtering: {len(self.trans_cache)}")
-
-    def get_metadata_files(self, directory):
-        book_files = []
-        for root, _, files in os.walk(directory):
-            for file in files:
-                if file.endswith(".book.tsv") and file[0] != ".":
-                    rel_path = os.path.join(root, file)
-                    book_files.append(rel_path)
-        return book_files
-
-    def get_trans_files(self, directory):
-        trans_files = []
-        for root, _, files in os.walk(directory):
-            for file in files:
-                if file.endswith(".trans.tsv") and file[0] != ".":
-                    rel_path = os.path.join(root, file)
-                    trans_files.append(rel_path)
-        return trans_files
-
-    def get_audio_files(self, directory):
-        audio_files = []
-        for root, _, files in os.walk(directory):
-            for file in files:
-                if file.endswith((".flac", ".wav", ".opus")):
-                    rel_path = os.path.relpath(os.path.join(root, file), directory)
-                    audio_files.append(rel_path)
-        return audio_files
-
-    def get_num_frames(self, index):
-        # get_num_frames(durations) by index
-        duration = self.meta_data_cache["Duration"][index]
-        # num_frames = duration * SAMPLE_RATE
-        num_frames = int(duration * 75)
-
-        # file_rel_path = self.meta_data_cache['relpath'][index]
-        # uid = file_rel_path.rstrip('.flac').split('/')[-1]
-        # num_frames += len(self.transcripts[uid])
-        return num_frames
-
-    def __len__(self):
-        return len(self.trans_cache)
-
-    def __getitem__(self, idx):
-        # Get the file rel path
-        file_dir_path = self.trans_cache["Dir_path"].iloc[idx]
-        # Get uid
-        uid = self.trans_cache.index[idx]
-        # Get the file name from cache uid
-        file_name = uid + ".wav"
-        # Get the full file path
-        full_file_path = os.path.join(file_dir_path, file_name)
-
-        # get phone
-        phone = self.trans_cache["Normalized_text"][uid]
-        phone = phonemizer_g2p(phone, "en")[1]
-        # load speech
-        speech, _ = librosa.load(full_file_path, sr=SAMPLE_RATE)
-        # if self.resample_to_24k:
-        #     speech = librosa.resample(speech, orig_sr=SAMPLE_RATE, target_sr=24000)
-        # speech = torch.tensor(speech, dtype=torch.float32)
-        # pad speech to multiples of 200
-
-        # remainder = speech.size(0) % 200
-        # if remainder > 0:
-        #     pad = 200 - remainder
-        #     speech = torch.cat([speech, torch.zeros(pad, dtype=torch.float32)], dim=0)
-
-        # inputs = self._get_reference_vc(speech, hop_length=200)
-        inputs = {}
-        # Get the speaker id
-        # speaker = self.meta_data_cache['speaker'][idx]
-        # speaker_id = self.speaker2id[speaker]
-        # inputs["speaker_id"] = speaker_id
-        inputs["speech"] = speech  # 24khz speech, [T]
-        inputs["phone"] = phone  # [T]
-        return inputs
+    def apply(self, f):
+        assert callable(f)
+        return Processor(self, f, *self.args, **self.kw)
 
 
-def _is_batch_full(batch, num_tokens, max_tokens, max_sentences):
-    if len(batch) == 0:
-        return 0
-    if len(batch) == max_sentences:
-        return 1
-    if num_tokens > max_tokens:
-        return 1
-    return 0
+class DistributedSampler:
+
+    def __init__(self, shuffle=True, partition=True):
+        self.epoch = -1
+        self.update()
+        self.shuffle = shuffle
+        self.partition = partition
+
+    def update(self):
+        assert dist.is_available()
+        if dist.is_initialized():
+            self.rank = dist.get_rank()
+            self.world_size = dist.get_world_size()
+        else:
+            self.rank = 0
+            self.world_size = 1
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:
+            self.worker_id = 0
+            self.num_workers = 1
+        else:
+            self.worker_id = worker_info.id
+            self.num_workers = worker_info.num_workers
+        return dict(
+            rank=self.rank,
+            world_size=self.world_size,
+            worker_id=self.worker_id,
+            num_workers=self.num_workers,
+        )
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+
+    def sample(self, data):
+        """Sample data according to rank/world_size/num_workers
+
+        Args:
+            data(List): input data list
+
+        Returns:
+            List: data list after sample
+        """
+        data = list(range(len(data)))
+        # force datalist even
+        if self.partition:
+            if self.shuffle:
+                random.Random(self.epoch).shuffle(data)
+            if len(data) < self.world_size:
+                data = data * math.ceil(self.world_size / len(data))
+                data = data[: self.world_size]
+            data = data[self.rank :: self.world_size]
+        if len(data) < self.num_workers:
+            data = data * math.ceil(self.num_workers / len(data))
+            data = data[: self.num_workers]
+        data = data[self.worker_id :: self.num_workers]
+        return data
 
 
-def batch_by_size(
-    indices,
-    num_tokens_fn,
-    max_tokens=None,
-    max_sentences=None,
-    required_batch_size_multiple=1,
+class DataList(IterableDataset):
+
+    def __init__(self, lists, shuffle=True, partition=True):
+        self.lists = lists
+        self.sampler = DistributedSampler(shuffle, partition)
+
+    def set_epoch(self, epoch):
+        self.sampler.set_epoch(epoch)
+
+    def __iter__(self):
+        sampler_info = self.sampler.update()
+        indexes = self.sampler.sample(self.lists)
+        for index in indexes:
+            data = dict(src=self.lists[index])
+            data.update(sampler_info)
+            yield data
+
+
+def Dataset(
+    data_list_file,
+    data_pipeline,
+    mode="train",
+    shuffle=True,
+    partition=True,
+    tts_file="",
+    prompt_utt2data="",
 ):
-    """
-    Yield mini-batches of indices bucketed by size. Batches may contain
-    sequences of different lengths.
+    """Construct dataset from arguments
+
+    We have two shuffle stage in the Dataset. The first is global
+    shuffle at shards tar/raw file level. The second is global shuffle
+    at training samples level.
 
     Args:
-        indices (List[int]): ordered list of dataset indices
-        num_tokens_fn (callable): function that returns the number of tokens at
-            a given index
-        max_tokens (int, optional): max number of tokens in each batch
-            (default: None).
-        max_sentences (int, optional): max number of sentences in each
-            batch (default: None).
-        required_batch_size_multiple (int, optional): require batch size to
-            be a multiple of N (default: 1).
+        data_type(str): raw/shard
+        tokenizer (BaseTokenizer): tokenizer to tokenize
+        partition(bool): whether to do data partition in terms of rank
     """
-    bsz_mult = required_batch_size_multiple
-
-    sample_len = 0
-    sample_lens = []
-    batch = []
-    batches = []
-    for i in range(len(indices)):
-        idx = indices[i]
-        num_tokens = num_tokens_fn(idx)
-        sample_lens.append(num_tokens)
-        sample_len = max(sample_len, num_tokens)
-
-        assert (
-            sample_len <= max_tokens
-        ), "sentence at index {} of size {} exceeds max_tokens " "limit of {}!".format(
-            idx, sample_len, max_tokens
+    assert mode in ["train", "inference"]
+    lists = read_lists(data_list_file)
+    if mode == "inference":
+        with open(tts_file) as f:
+            tts_data = json.load(f)
+        utt2lists = read_json_lists(prompt_utt2data)
+        # filter unnecessary file in inference mode
+        lists = list(
+            set([utt2lists[utt] for utt in tts_data.keys() if utt2lists[utt] in lists])
         )
-        num_tokens = (len(batch) + 1) * sample_len
-
-        if _is_batch_full(batch, num_tokens, max_tokens, max_sentences):
-            mod_len = max(
-                bsz_mult * (len(batch) // bsz_mult),
-                len(batch) % bsz_mult,
-            )
-            batches.append(batch[:mod_len])
-            batch = batch[mod_len:]
-            sample_lens = sample_lens[mod_len:]
-            sample_len = max(sample_lens) if len(sample_lens) > 0 else 0
-        batch.append(idx)
-    if len(batch) > 0:
-        batches.append(batch)
-    return batches
+    dataset = DataList(lists, shuffle=shuffle, partition=partition)
+    if mode == "inference":
+        # map partial arg tts_data in inference mode
+        data_pipeline[0] = partial(data_pipeline[0], tts_data=tts_data)
+    for func in data_pipeline:
+        dataset = Processor(dataset, func, mode=mode)
+    return dataset
 
 
 def test():
-    from utils.util import load_config
+    from llamavoice.dataset.processor import Processor as P
+    from llamavoice.config.config import Config as C
+    from llamavoice.tokenizer.tokenizer import get_tokenizer
+    from torch.utils.data import DataLoader
 
-    cfg = load_config("./egs/tts/VALLE_V2/exp_ar_libritts.json")
-    dataset = VALLEDataset(cfg.dataset)
-    metadata_cache = dataset.metadata_cache
-    trans_cache = dataset.trans_cache
-    print(trans_cache.head(10))
-    # print(dataset.book_files_list)
-    breakpoint()
+    cv_data = train_data = "LibriTTS/data/dev-clean/parquet/data.list"
+    get_tokenizer = partial(
+        get_tokenizer,
+        multilingual=C.dataset.multilingual,
+        num_languages=C.dataset.num_languages,
+        language=C.dataset.language,
+        task=C.dataset.task,
+    )
+    allowed_special = C.dataset.allowed_special
+    tokenize = partial(
+        P.tokenize, get_tokenizer=get_tokenizer, allowed_special=allowed_special
+    )
+    filter = partial(
+        P.filter,
+        max_length=C.dataset.max_length,
+        min_length=C.dataset.min_length,
+        token_max_length=C.dataset.token_max_length,
+        token_min_length=C.dataset.token_min_length,
+    )
+    resample = partial(P.resample, resample_rate=C.dataset.sample_rate)
+    shuffle = partial(P.shuffle, shuffle_size=C.dataset.shuffle_size)
+    sort = partial(P.sort, sort_size=C.dataset.sort_size)
+    batch = partial(
+        P.batch,
+        batch_type=C.dataset.batch_type,
+        max_frames_in_batch=C.dataset.max_frames_in_batch,
+    )
+    padding = partial(P.padding, use_spk_embedding=False)
+
+    data_pipeline = [
+        P.parquet_opener,
+        tokenize,
+        filter,
+        resample,
+        shuffle,
+        sort,
+        batch,
+        padding,
+    ]
+
+    train_dataset = Dataset(
+        train_data,
+        data_pipeline=data_pipeline,
+        mode="train",
+        shuffle=True,
+        partition=True,
+    )
+    cv_dataset = Dataset(
+        cv_data,
+        data_pipeline=data_pipeline,
+        mode="train",
+        shuffle=False,
+        partition=False,
+    )
+
+    # do not use persistent_workers=True, as whisper tokenizer opens tiktoken file each time when the for loop starts
+    train_data_loader = DataLoader(
+        train_dataset,
+        batch_size=None,
+        pin_memory=C.dataset.pin_memory,
+        num_workers=C.dataset.num_workers,
+        prefetch_factor=C.dataset.prefetch,
+    )
+    cv_data_loader = DataLoader(
+        cv_dataset,
+        batch_size=None,
+        pin_memory=C.dataset.pin_memory,
+        num_workers=C.dataset.num_workers,
+        prefetch_factor=C.dataset.prefetch,
+    )
+    for batch_idx, batch_dict in enumerate(train_data_loader):
+        print(batch_idx, batch_dict)
+    for batch_idx, batch_dict in enumerate(cv_data_loader):
+        print(batch_idx, batch_dict)
 
 
 if __name__ == "__main__":

@@ -43,10 +43,24 @@ class LlamaVoiceConfig(PretrainedConfig):
         self.discriminator_config = kwargs.get(
             "discriminator_config", asdict(DefultConfig.discriminator)
         )
+        self.dataset = PretrainedConfig(
+            **kwargs.get("dataset", asdict(DefultConfig.dataset))
+        )
         self.train = PretrainedConfig(**kwargs.get("train", asdict(DefultConfig.train)))
+        self.train.dataloader = PretrainedConfig(**self.train.dataloader)
+        self.train.AdamW = PretrainedConfig(**self.train.AdamW)
         self.loss_config = kwargs.get("loss_config", asdict(DefultConfig.loss))
         self.stop_threshold = kwargs.get("stop_threshold", 0.5)
         super().__init__(**kwargs)
+
+
+class LlamaVoiceDiscriminator(PreTrainedModel):
+    def __init__(self, config: LlamaVoiceConfig):
+        super().__init__(config)
+        self.discriminator = self._build_discriminator(config.discriminator_config)
+
+    def _build_discriminator(self, config: dict):
+        return HiFiGANMultiScaleMultiPeriodDiscriminator(**config)
 
 
 class LlamaVoice(PreTrainedModel):
@@ -67,7 +81,6 @@ class LlamaVoice(PreTrainedModel):
 
         self.flow = self._build_flow(config.flow_config)
         self.decoder = self._build_decoder(config.decoder_config)
-        self.discriminator = self._build_discriminator(config.discriminator_config)
         # Loss criterion
         self.criterion = LamaVoiceLoss(config.loss_config)
         self.config = config
@@ -138,9 +151,6 @@ class LlamaVoice(PreTrainedModel):
             resblock_dilations=config.decoder_resblock_dilations,
             use_weight_norm=config.use_weight_norm_in_decoder,
         )
-
-    def _build_discriminator(self, config: dict):
-        return HiFiGANMultiScaleMultiPeriodDiscriminator(**config)
 
     def dist_sampling(self, x):
         stats = self.dist_head(x)  # (b, t, c)

@@ -153,6 +153,38 @@ class Train:
             "persistent_workers": True,
         }
     )
+    learning_rate: float = 2e-4
+    AdamW: Dict[str, object] = field(
+        default_factory=lambda: {"betas": (0.8, 0.99), "eps": 1e-9}
+    )
+    lr_decay: float = 0.999875
+
+
+@dataclass(repr=False, eq=False)
+class Dataset:
+    # tokenizer
+    multilingual: bool = True
+    num_languages: int = 100
+    language: str = "en"
+    task: str = "transcribe"
+    allowed_special: str = "all"
+    # filter
+    max_length: int = 40960
+    min_length: int = 0
+    token_max_length: int = 200
+    token_min_length: int = 1
+    # resample
+    sample_rate: int = 24000
+    # shuffle
+    shuffle_size: int = 1000
+    # sort
+    sort_size: int = 500  # sort_size should be less than shuffle_size
+    # batch
+    batch_type: str = "static"  # static or dynamic
+    max_frames_in_batch: int = 12000
+    batch_size: int = 16
+    # dataloader
+    prefetch: int = 5  # 100
 
 
 @dataclass(repr=False, eq=False)
@@ -164,6 +196,7 @@ class Config:
     loss: Loss = Loss()
     discriminator: Discriminator = Discriminator()
     train: Train = Train()
+    dataset: Dataset = Dataset()
 
 
 if __name__ == "__main__":
