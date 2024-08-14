@@ -18,16 +18,15 @@ from llamavoice.model import LlamaVoice, LlamaVoiceDiscriminator
 from llamavoice.dataset.processor import Processor as P
 from llamavoice.dataset.dataset import Dataset
 from llamavoice.tokenizer.tokenizer import get_tokenizer
+from llamavoice.utils.util import slice_segments, rand_slice_segments
+
 from torch.utils.data import DataLoader
+from transformers.configuration_utils import PretrainedConfig
+
 
 
 class LlamaVoiceTrainer(TTSTrainer):
     def __init__(self, args, cfg):
-        class _cfg:
-            use_phone = False
-            use_spkid = False
-
-        cfg.preprocess = _cfg
         TTSTrainer.__init__(self, args, cfg)
 
     def _build_model(self):
@@ -393,9 +392,15 @@ class LlamaVoiceTrainer(TTSTrainer):
         total_loss = 0
         training_stats = {}
 
-        batch["linear"] = batch["linear"].transpose(2, 1)  # [b, d, t]
-        batch["mel"] = batch["mel"].transpose(2, 1)  # [b, d, t]
-        batch["audio"] = batch["audio"].unsqueeze(1)  # [b, d, t]
+        # ("speech", torch.Size([16, 1, 404160])),
+        # ("speech_len", torch.Size([16])),
+        # ("text_token", torch.Size([16, 55])),
+        # ("text_token_len", torch.Size([16])),
+        # ("speech_feat", torch.Size([16, 513, 1578])),
+        # ("speech_feat_len", torch.Size([16])),
+        
+        batch["target_feats"] = batch["speech_feat"]
+        batch["target_feats_len"] = batch["speech_feat_len"]
 
         # Train Discriminator
         # Generator output
@@ -531,6 +536,8 @@ def test():
     print(c)
     c.log_dir = "logs"
     trainer = LlamaVoiceTrainer(args, c)
+    trainer.train_loop()
+    trainer.test_loop()
 
 
 if __name__ == "__main__":

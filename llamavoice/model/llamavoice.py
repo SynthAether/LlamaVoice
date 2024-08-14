@@ -51,6 +51,8 @@ class LlamaVoiceConfig(PretrainedConfig):
         self.train.AdamW = PretrainedConfig(**self.train.AdamW)
         self.loss_config = kwargs.get("loss_config", asdict(DefultConfig.loss))
         self.stop_threshold = kwargs.get("stop_threshold", 0.5)
+        # for amphion compatibility
+        self.preprocess = PretrainedConfig(**{"use_phone": False, "use_spkid": False})
         super().__init__(**kwargs)
 
 

@@ -158,6 +158,15 @@ def compute_fbank(data, feat_extractor, mode="train"):
         yield sample
 
 
+def compute_linear(data, feat_extractor, cfg, mode="train"):
+    """Extract linear features"""
+    for sample in data:
+        y = sample["speech"]
+        linear = feat_extractor(y, cfg)
+        sample["speech_feat"] = linear
+        yield sample
+
+
 def parse_embedding(data, normalize, mode="train"):
     """Parse utt_embedding/spk_embedding
 
@@ -343,9 +352,20 @@ def padding(data, use_spk_embedding=False, mode="train"):
         )
         order = torch.argsort(speech_len, descending=True)
 
-        # length must be the last dimension
-        speech = [torch.tensor(sample[i]["speech"]).transpose(0, 1) for i in order]
+        # variable length must be the first dimension
+        speech = [sample[i]["speech"].transpose(0, 1) for i in order]
         speech = pad_sequence(speech, batch_first=True, padding_value=0).transpose(1, 2)
+
+        speech_feat = [
+            sample[i]["speech_feat"].transpose(0, 1) for i in order
+        ]  # [T, C]
+        speech_feat_len = torch.tensor(
+            [i.size(0) for i in speech_feat], dtype=torch.int32
+        )
+
+        speech_feat = pad_sequence(
+            speech_feat, batch_first=True, padding_value=0
+        ).transpose(1, 2)
 
         utts = [sample[i]["utt"] for i in order]
         text = [sample[i]["text"] for i in order]
@@ -357,12 +377,12 @@ def padding(data, use_spk_embedding=False, mode="train"):
         text_token = pad_sequence(text_token, batch_first=True, padding_value=0)
 
         batch = {
-            "utts": utts,
             "speech": speech,
             "speech_len": speech_len,
-            "text": text,
             "text_token": text_token,
             "text_token_len": text_token_len,
+            "speech_feat": speech_feat,
+            "speech_feat_len": speech_feat_len,
         }
         if mode == "inference":
             tts_text = [sample[i]["tts_text"] for i in order]
@@ -393,6 +413,10 @@ class Processor:
     @staticmethod
     def filter(*args, **kwargs):
         return filter(*args, **kwargs)
+
+    @staticmethod
+    def compute_linear(*args, **kwargs):
+        return compute_linear(*args, **kwargs)
 
     @staticmethod
     def resample(*args, **kwargs):

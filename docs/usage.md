@@ -14,3 +14,10 @@ python llamavoice/dataset/make_parquet_list.py --num_utts_per_parquet 10 \
       --src_dir LibriTTS/data/dev-clean \
       --des_dir LibriTTS/data/dev-clean/parquet
 ```
+
+## 
+
+
+# NOTE:
+
+1. fix issues: https://github.com/huggingface/accelerate/issues/3011

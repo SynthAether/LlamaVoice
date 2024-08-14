@@ -166,10 +166,12 @@ def Dataset(
 
 def test():
     from llamavoice.dataset.processor import Processor as P
-    from llamavoice.config.config import Config as C
+    from llamavoice.model import LlamaVoiceConfig
     from llamavoice.tokenizer.tokenizer import get_tokenizer
     from torch.utils.data import DataLoader
+    from llamavoice.utils.mel import extract_linear_features
 
+    C = LlamaVoiceConfig()
     cv_data = train_data = "LibriTTS/data/dev-clean/parquet/data.list"
     get_tokenizer = partial(
         get_tokenizer,
@@ -190,6 +192,9 @@ def test():
         token_min_length=C.dataset.token_min_length,
     )
     resample = partial(P.resample, resample_rate=C.dataset.sample_rate)
+    compute_linear = partial(
+        P.compute_linear, feat_extractor=extract_linear_features, cfg=C.dataset
+    )
     shuffle = partial(P.shuffle, shuffle_size=C.dataset.shuffle_size)
     sort = partial(P.sort, sort_size=C.dataset.sort_size)
     batch = partial(
@@ -203,6 +208,7 @@ def test():
         P.parquet_opener,
         tokenize,
         filter,
+        compute_linear,
         resample,
         shuffle,
         sort,
@@ -229,21 +235,30 @@ def test():
     train_data_loader = DataLoader(
         train_dataset,
         batch_size=None,
-        pin_memory=C.dataset.pin_memory,
-        num_workers=C.dataset.num_workers,
+        pin_memory=C.train.dataloader.pin_memory,
+        num_workers=C.train.dataloader.num_worker,
         prefetch_factor=C.dataset.prefetch,
     )
     cv_data_loader = DataLoader(
         cv_dataset,
         batch_size=None,
-        pin_memory=C.dataset.pin_memory,
-        num_workers=C.dataset.num_workers,
+        pin_memory=C.train.dataloader.pin_memory,
+        num_workers=C.train.dataloader.num_worker,
         prefetch_factor=C.dataset.prefetch,
     )
+    from accelerate import Accelerator
+
+    accelerator = Accelerator()
+    train_data_loader, cv_data_loader = accelerator.prepare(
+        train_data_loader, cv_data_loader
+    )
     for batch_idx, batch_dict in enumerate(train_data_loader):
-        print(batch_idx, batch_dict)
+        print(batch_idx, [(k, v.shape) for k, v in batch_dict.items()])
+        for k, v in batch_dict.items():
+            if k.endswith("_len"):
+                print(k, v)
     for batch_idx, batch_dict in enumerate(cv_data_loader):
-        print(batch_idx, batch_dict)
+        print(batch_idx, [(k, v.shape) for k, v in batch_dict.items()])
 
 
 if __name__ == "__main__":

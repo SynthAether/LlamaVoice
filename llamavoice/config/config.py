@@ -183,6 +183,10 @@ class Dataset:
     batch_type: str = "static"  # static or dynamic
     max_frames_in_batch: int = 12000
     batch_size: int = 16
+    # compute linear
+    win_size:int = 1024
+    n_fft: int = 1024
+    hop_size: int = 256
     # dataloader
     prefetch: int = 5  # 100
 

@@ -19,6 +19,7 @@ from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration
 from torch.utils.data import ConcatDataset, DataLoader
 from accelerate import DistributedDataParallelKwargs
+from transformers.configuration_utils import PretrainedConfig
 
 from llamavoice.train.scheduler import Eden
 from llamavoice.train.base_sampler import build_samplers
@@ -611,14 +612,17 @@ class TTSTrainer(BaseTrainer):
 
     def __dump_cfg(self, path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        json5.dump(
-            self.cfg,
-            open(path, "w"),
-            indent=4,
-            sort_keys=True,
-            ensure_ascii=False,
-            quote_keys=True,
-        )
+        if isinstance(self.cfg, PretrainedConfig):
+            self.cfg.save_pretrained(os.path.dirname(path))
+        else:
+            json5.dump(
+                self.cfg,
+                open(path, "w"),
+                indent=4,
+                sort_keys=True,
+                ensure_ascii=False,
+                quote_keys=True,
+            )
 
     def __check_basic_configs(self):
         if self.cfg.train.gradient_accumulation_step <= 0:
