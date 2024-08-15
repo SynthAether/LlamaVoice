@@ -234,59 +234,9 @@ class LlamaVoiceTrainer(TTSTrainer):
         See ``_test_epoch`` for usage.
         """
 
-        valid_losses = {}
-        total_loss = 0
-        valid_stats = {}
+        return _train_step(self, batch, no_grad=True)
 
-        batch["linear"] = batch["linear"].transpose(2, 1)  # [b, d, t]
-        batch["mel"] = batch["mel"].transpose(2, 1)  # [b, d, t]
-        batch["audio"] = batch["audio"].unsqueeze(1)  # [b, d, t]
-
-        #  Discriminator
-        # Generator output
-        outputs_g = self.model["generator"](batch)
-
-        y_mel = slice_segments(
-            batch["mel"],
-            outputs_g["ids_slice"],
-            self.cfg.decoder_config["segment_size"],
-        )
-        y_hat_mel = mel_spectrogram_torch(
-            outputs_g["predicted_audio"].squeeze(1), self.cfg.dataset
-        )
-        y = slice_segments(
-            batch["audio"],
-            outputs_g["ids_slice"] * self.cfg.preprocess.hop_size,
-            self.cfg.preprocess.segment_size,
-        )
-
-        # Discriminator output
-        outputs_d = self.model["discriminator"](
-            y, outputs_g["predicted_audio"].detach()
-        )
-        ##  Discriminator loss
-        loss_d = self.criterion["discriminator"](
-            outputs_d["y_d_hat_r"], outputs_d["y_d_hat_g"]
-        )
-        valid_losses.update(loss_d)
-
-        ##  Generator
-        outputs_d = self.model["discriminator"](y, outputs_g["predicted_audio"])
-        loss_g = self.criterion["generator"](outputs_g, outputs_d, y_mel, y_hat_mel)
-        valid_losses.update(loss_g)
-
-        for item in valid_losses:
-            valid_losses[item] = valid_losses[item].item()
-
-        total_loss = loss_g["loss_gen_all"] + loss_d["loss_disc_all"]
-
-        return (
-            total_loss.item(),
-            valid_losses,
-            valid_stats,
-        )
-
-    def _train_step(self, batch):
+    def _train_step(self, batch, no_grad=False):
         r"""Forward step for training and inference. This function is called
         in ``_train_step`` & ``_test_step`` function.
         """
@@ -294,13 +244,6 @@ class LlamaVoiceTrainer(TTSTrainer):
         train_losses = {}
         total_loss = 0
         training_stats = {}
-
-        # ("speech", torch.Size([16, 1, 404160])),
-        # ("speech_len", torch.Size([16])),
-        # ("text_token", torch.Size([16, 55])),
-        # ("text_token_len", torch.Size([16])),
-        # ("speech_feat", torch.Size([16, 513, 1578])),
-        # ("speech_feat_len", torch.Size([16])),
 
         batch["target_feats"] = batch["speech_feat"]
         batch["target_feats_len"] = batch["speech_feat_len"]
@@ -352,9 +295,10 @@ class LlamaVoiceTrainer(TTSTrainer):
         train_losses.update(loss_d)
 
         # BP and Grad Updated
-        self.optimizer["optimizer_d"].zero_grad()
-        self.accelerator.backward(loss_d["loss_disc_all"])
-        self.optimizer["optimizer_d"].step()
+        if not no_grad:
+            self.optimizer["optimizer_d"].zero_grad()
+            self.accelerator.backward(loss_d["loss_disc_all"])
+            self.optimizer["optimizer_d"].step()
 
         ## Train Generator
         outputs_d_hat = self.model["discriminator"](outputs_g["predicted_audio"])
@@ -368,9 +312,10 @@ class LlamaVoiceTrainer(TTSTrainer):
         train_losses.update(loss_g)
 
         # BP and Grad Updated
-        self.optimizer["optimizer_g"].zero_grad()
-        self.accelerator.backward(loss_g["loss_gen_all"])
-        self.optimizer["optimizer_g"].step()
+        if not no_grad:
+            self.optimizer["optimizer_g"].zero_grad()
+            self.accelerator.backward(loss_g["loss_gen_all"])
+            self.optimizer["optimizer_g"].step()
 
         for item in train_losses:
             train_losses[item] = train_losses[item].item()

@@ -779,7 +779,6 @@ class LamaVoiceLoss(nn.Module):
         loss_g["mel_loss"] = mel_loss
 
         # 5. adv loss
-        print("---", outputs_d_hat, outputs_d)
         adv_loss = self.generator_adv_loss(outputs_d_hat)
         adv_loss = adv_loss * self.config.generator_adv_coeff
         print("--- adv_loss", adv_loss)
