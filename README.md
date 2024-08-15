@@ -7,15 +7,28 @@ LlamaVoice is an innovative, Llama-based model for large-scale voice generation.
 The following diagram illustrates the architecture of LlamaVoice:
 
 ```mermaid
-graph TD
-    text([Text]) --> bbpe(Tokenizer)
-    bbpe --> model(Llama Model)
-    Voice_prompt([Voice Prompt]) --> speech_encoder(Voice Encoder) --> model
-    model --> linear(Linear) --> stop([Stop])
-    model --> dist1([LLM distribution])
-    dist1 <--> |KL| flow(Flow) <--> dist2([VAE distribution])
-
-    target_wav([Target Voice]) --> speech_encoder --> dist2 --> v(Voice Decoder) --> generated_wav([Generated/Reconstructed Voice])
+flowchart TD
+    text(["Text"]) --> bbpe("Tokenizer")
+    bbpe --> model("Llama Model")
+    Voice_prompt(["Voice Prompt"]) --> model
+    model --> linear("Linear") & dist1(["LLM distribution"])
+    linear --> stop(["Stop"])
+    dist1 <-- KL --> flow("Flow")
+    flow <--> dist2(["VAE distribution"])
+    target_wav(["Target Voice"]) --> speech_encoder["speech_encoder"]
+    speech_encoder --> dist2
+    dist2 --> v("Voice Decoder")
+    v --> generated_wav(["Generated/Reconstructed Voice"])
+    style text fill:#FFF9C4
+    style model fill:#FFCDD2
+    style linear fill:#FFCDD2
+    style speech_encoder fill:#FFCDD2
+    style flow fill:#FFCDD2
+    style v fill:#FFCDD2
+    style Voice_prompt fill:#FFF9C4
+    style stop fill:#FFF9C4
+    style target_wav fill:#FFF9C4
+    style generated_wav fill:#FFF9C4
 ```
 
 ## Key Features

@@ -14,7 +14,7 @@ class GPT:
 
 @dataclass(repr=False, eq=False)
 class AudioEncoder:
-    aux_channels: int = 512
+    aux_channels: int = 513  # 1024 / 2 - 1
     hidden_channels: int = 192
     posterior_encoder_kernel_size: int = 5
     posterior_encoder_layers: int = 16
@@ -105,19 +105,6 @@ class Loss:
     prompt_kl_coeff: float = 1.0
     stop_coeff: float = 1.0
     text_coeff: float = 1.0
-    mel_loss_params: Dict[str, object] = field(
-        default_factory=lambda: {
-            "fs": 24000,  # must be the same as the training data
-            "n_fft": 1024,  # fft points
-            "hop_length": 256,  # hop size
-            "win_length": None,  # window length
-            "window": "hann",  # window type
-            "n_mels": 80,  # number of Mel basis
-            "fmin": 0,  # minimum frequency for Mel basis
-            "fmax": None,  # maximum frequency for Mel basis
-            "log_base": None,  # null represent natural log
-        }
-    )
     mel_coeff: float = 1.0
     generator_adv_loss_params: Dict[str, object] = field(
         default_factory=lambda: {"loss_type": "mse", "average_by_discriminators": False}
@@ -184,9 +171,13 @@ class Dataset:
     max_frames_in_batch: int = 12000
     batch_size: int = 16
     # compute linear
-    win_size:int = 1024
+    win_size: int = 1024
     n_fft: int = 1024
     hop_size: int = 256
+    # compute mel
+    n_mel: int = 80
+    fmin: int = 0
+    fmax: int = None
     # dataloader
     prefetch: int = 5  # 100
 

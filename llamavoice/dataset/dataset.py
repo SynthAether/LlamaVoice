@@ -169,7 +169,7 @@ def test():
     from llamavoice.model import LlamaVoiceConfig
     from llamavoice.tokenizer.tokenizer import get_tokenizer
     from torch.utils.data import DataLoader
-    from llamavoice.utils.mel import extract_linear_features
+    from llamavoice.utils.mel import extract_linear_features, extract_mel_features
 
     C = LlamaVoiceConfig()
     cv_data = train_data = "LibriTTS/data/dev-clean/parquet/data.list"
@@ -195,6 +195,9 @@ def test():
     compute_linear = partial(
         P.compute_linear, feat_extractor=extract_linear_features, cfg=C.dataset
     )
+    compute_mel = partial(
+        P.compute_mel, feat_extractor=extract_mel_features, cfg=C.dataset
+    )
     shuffle = partial(P.shuffle, shuffle_size=C.dataset.shuffle_size)
     sort = partial(P.sort, sort_size=C.dataset.sort_size)
     batch = partial(
@@ -209,6 +212,7 @@ def test():
         tokenize,
         filter,
         compute_linear,
+        compute_mel,
         resample,
         shuffle,
         sort,

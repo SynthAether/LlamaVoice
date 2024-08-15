@@ -106,6 +106,11 @@ class ResidualAffineCouplingBlock(torch.nn.Module):
                 x = flow(x, x_mask, g=g, inverse=inverse)
         return x
 
+    def remove_weight_norm(self):
+        for layer in self.flows:
+            if isinstance(layer, ResidualAffineCouplingLayer):
+                layer.remove_weight_norm()
+
 
 class ResidualAffineCouplingLayer(torch.nn.Module):
     """Residual affine coupling layer."""
@@ -225,3 +230,6 @@ class ResidualAffineCouplingLayer(torch.nn.Module):
             xb = (xb - m) * torch.exp(-logs) * x_mask
             x = torch.cat([xa, xb], 1)
             return x
+
+    def remove_weight_norm(self):
+        self.encoder.remove_weight_norm()

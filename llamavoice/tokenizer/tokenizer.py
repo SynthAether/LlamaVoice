@@ -402,6 +402,7 @@ def test():
     text = "Hello, how are you? 你好吗"
     print(tokenizer.encode(text))
     print(tokenizer.decode(tokenizer.encode(text)))
+    print("vocab size", tokenizer.encoding.n_vocab)  # get: 51866
 
 
 if __name__ == "__main__":

@@ -704,108 +704,98 @@ class LamaVoiceLoss(nn.Module):
         self.kl_loss = KLDivergenceLossWithoutFlow()
         self.flow_kl_loss = KLDivergenceLoss()
         self.bce = nn.BCELoss()
-        self.mel_loss = MelSpectrogramLoss(
-            **config["mel_loss_params"],
-        )
+        self.l1_loss = nn.L1Loss()
         self.generator_adv_loss = GeneratorAdversarialLoss(
             **config["generator_adv_loss_params"]
         )
         self.feat_match_loss = FeatureMatchLoss(**config["feat_match_loss_params"])
         self.config = PretrainedConfig(**config)
 
-    def forward(self, inputs: ModelOutput) -> torch.Tensor:
-        """
-        ModelOutput(
-            lm_m=lm_m,
-            lm_logs=lm_logs,
-            flow_z=flow_z,
-            vae_m=vae_m,
-            vae_logs=vae_logs,
-            vae_mask=vae_mask,
-            gen_wav=wav,
-
-            stop_predict=stop,
-            target_feats_len=target_feats_len,
-
-            text_logits=text_logits,
-            text_targets=text_token,
-
-            prompt_m=prompt_m,
-            prompt_logs=prompt_logs,
-            plm_m=plm_m,
-            plm_logs=plm_logs,
-
-
-            predicted_audio=gen_wav,
-            target_audio=sliced_target_audio,
-            predicted_d_out=p_hat,
-            target_d_out=p,
-        )
-        """
-        # print all shape
-        print(
-            "loss input", inputs.lm_m.shape, inputs.lm_logs.shape, inputs.flow_z.shape
-        )
-        print(
-            "loss input",
-            inputs.vae_m.shape,
-            inputs.vae_logs.shape,
-            inputs.vae_mask.shape,
-        )
-        # kl-loss
+    def forward(
+        self, outputs_g, outputs_d, outputs_d_hat, y_mel, y_hat_mel
+    ) -> torch.Tensor:
+        loss_g = {}
+        # 1. kl-loss
         flow_kl_loss = self.flow_kl_loss(
-            inputs.flow_z, inputs.vae_logs, inputs.lm_m, inputs.lm_logs, inputs.vae_mask
+            outputs_g.flow_z,
+            outputs_g.vae_logs,
+            outputs_g.lm_m,
+            outputs_g.lm_logs,
+            outputs_g.vae_mask,
         )
+        loss_g["flow_kl_loss"] = flow_kl_loss
+
         kl_loss = self.kl_loss(
-            inputs.vae_m, inputs.vae_logs, inputs.lm_m, inputs.lm_logs
+            outputs_g.vae_m, outputs_g.vae_logs, outputs_g.lm_m, outputs_g.lm_logs
         )
+        loss_g["kl_loss"] = kl_loss
+
         prompt_kl_loss = self.kl_loss(
-            inputs.prompt_m, inputs.prompt_logs, inputs.plm_m, inputs.plm_logs
+            outputs_g.prompt_m,
+            outputs_g.prompt_logs,
+            outputs_g.plm_m,
+            outputs_g.plm_logs,
         )
+        loss_g["prompt_kl_loss"] = prompt_kl_loss
+
         kl_loss = (
             kl_loss * self.config.kl_coeff
             + flow_kl_loss * self.config.flow_kl_coeff
             + prompt_kl_loss * self.config.prompt_kl_coeff
         )
+        loss_g["total_kl_loss"] = kl_loss
+
         print("kl loss", kl_loss)
-        print("--- stop_predict", inputs.stop_predict.shape)
-        stop_target = torch.ones_like(inputs.stop_predict)
+
+        # 2. stop loss
+        print("--- stop_predict", outputs_g.stop_predict.shape)
+        stop_target = torch.ones_like(outputs_g.stop_predict)
         mask = (
             torch.arange(
-                inputs.stop_predict.size(1), device=inputs.stop_predict.device
+                outputs_g.stop_predict.size(1), device=outputs_g.stop_predict.device
             )[None, :]
-            < inputs.target_feats_len[:, None] - 1
+            < outputs_g.target_feats_len[:, None] - 1
         )
         print("--- mask", mask, mask.shape)
         stop_target[mask] = 0.0
-        stop_loss = self.bce(inputs.stop_predict, stop_target) * self.config.stop_coeff
+        stop_loss = (
+            self.bce(outputs_g.stop_predict, stop_target) * self.config.stop_coeff
+        )
+        loss_g["stop_loss"] = stop_loss
         print("--- stop_loss", stop_loss)
 
-        print("--- shape", inputs.text_logits.shape, inputs.text_targets.shape)
+        # 3. text loss
+        print("--- shape", outputs_g.text_logits.shape, outputs_g.text_targets.shape)
         text_loss = F.cross_entropy(
-            inputs.text_logits.transpose(1, 2), inputs.text_targets
+            outputs_g.text_logits.transpose(1, 2), outputs_g.text_targets
         )
         text_loss = text_loss * self.config.text_coeff
         print("--- text_loss", text_loss)
+        loss_g["text_loss"] = text_loss
 
-        # mel loss
-        mel_loss = self.mel_loss(inputs.predicted_audio, inputs.target_audio)
+        # 4. mel loss
+        mel_loss = self.l1_loss(y_mel, y_hat_mel)
         mel_loss = mel_loss * self.config.mel_coeff
+        loss_g["mel_loss"] = mel_loss
 
-        # adv loss
-        adv_loss = self.generator_adv_loss(inputs.predicted_d_out)
+        # 5. adv loss
+        print("---", outputs_d_hat, outputs_d)
+        adv_loss = self.generator_adv_loss(outputs_d_hat)
         adv_loss = adv_loss * self.config.generator_adv_coeff
         print("--- adv_loss", adv_loss)
-        feat_match_loss = self.feat_match_loss(
-            inputs.predicted_d_out, inputs.target_d_out
-        )
-        feat_match_loss = feat_match_loss * self.config.feat_match_coeff
+        loss_g["adv_loss"] = adv_loss
 
+        # 6. feat match loss
+        feat_match_loss = self.feat_match_loss(outputs_d_hat, outputs_d)
+        feat_match_loss = feat_match_loss * self.config.feat_match_coeff
+        loss_g["feat_match_loss"] = feat_match_loss
         print("--- feat_match_loss", feat_match_loss)
 
         loss = kl_loss + stop_loss + text_loss + mel_loss + adv_loss + feat_match_loss
+        loss_g["loss_gen_all"] = loss
         print(loss)
-        return loss
+
+        return loss_g
 
 
 """

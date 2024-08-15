@@ -23,7 +23,13 @@ def extract_linear_features(y, cfg, center=False):
     if torch.max(y) > 1.0:
         print("max value is ", torch.max(y))
 
-    _hann_window = torch.hann_window(cfg.win_size).to(y.device)
+    global hann_window
+    name = f"hann_window_{cfg.win_size}_device_{y.device}"
+    if name not in hann_window:
+        _hann_window = torch.hann_window(cfg.win_size).to(y.device)
+        hann_window[name] = _hann_window
+    else:
+        _hann_window = hann_window[name]
 
     y = torch.nn.functional.pad(
         y.unsqueeze(1),
@@ -61,7 +67,10 @@ def mel_spectrogram_torch(y, cfg, center=False):
         print("max value is ", torch.max(y))
 
     global mel_basis, hann_window
-    if cfg.fmax not in mel_basis:
+    hann_name = f"hann_window_{cfg.win_size}_device_{y.device}"
+    mel_name = f"mel_basis_{cfg.n_mel}_{cfg.fmin}_{cfg.fmax}_{cfg.sample_rate}_{cfg.n_fft}_device_{y.device}"
+
+    if mel_name not in mel_basis:
         mel = librosa_mel_fn(
             sr=cfg.sample_rate,
             n_fft=cfg.n_fft,
@@ -69,10 +78,15 @@ def mel_spectrogram_torch(y, cfg, center=False):
             fmin=cfg.fmin,
             fmax=cfg.fmax,
         )
-        mel_basis[str(cfg.fmax) + "_" + str(y.device)] = (
-            torch.from_numpy(mel).float().to(y.device)
-        )
-        hann_window[str(y.device)] = torch.hann_window(cfg.win_size).to(y.device)
+        mel = torch.from_numpy(mel).float().to(y.device)
+        mel_basis[mel_name] = mel
+    else:
+        mel = mel_basis[mel_name]
+    if hann_name not in hann_window:
+        _hann_window = torch.hann_window(cfg.win_size).to(y.device)
+        hann_window[hann_name] = _hann_window
+    else:
+        _hann_window = hann_window[hann_name]
 
     y = torch.nn.functional.pad(
         y.unsqueeze(1),
@@ -86,7 +100,7 @@ def mel_spectrogram_torch(y, cfg, center=False):
         cfg.n_fft,
         hop_length=cfg.hop_size,
         win_length=cfg.win_size,
-        window=hann_window[str(y.device)],
+        window=_hann_window,
         center=center,
         pad_mode="reflect",
         normalized=False,
@@ -97,7 +111,7 @@ def mel_spectrogram_torch(y, cfg, center=False):
     spec = torch.view_as_real(spec)
     spec = torch.sqrt(spec.pow(2).sum(-1) + 1e-6)
 
-    spec = torch.matmul(mel_basis[str(cfg.fmax) + "_" + str(y.device)], spec)
+    spec = torch.matmul(mel, spec)
     spec = spectral_normalize_torch(spec)
 
     return spec
@@ -128,7 +142,10 @@ def extract_mel_features(
         print("max value is ", torch.max(y))
 
     global mel_basis, hann_window
-    if cfg.fmax not in mel_basis:
+    hann_name = f"hann_window_{cfg.win_size}_device_{y.device}"
+    mel_name = f"mel_basis_{cfg.n_mel}_{cfg.fmin}_{cfg.fmax}_{cfg.sample_rate}_{cfg.n_fft}_device_{y.device}"
+
+    if mel_name not in mel_basis:
         mel = librosa_mel_fn(
             sr=cfg.sample_rate,
             n_fft=cfg.n_fft,
@@ -136,10 +153,15 @@ def extract_mel_features(
             fmin=cfg.fmin,
             fmax=cfg.fmax,
         )
-        mel_basis[str(cfg.fmax) + "_" + str(y.device)] = (
-            torch.from_numpy(mel).float().to(y.device)
-        )
-        hann_window[str(y.device)] = torch.hann_window(cfg.win_size).to(y.device)
+        mel = torch.from_numpy(mel).float().to(y.device)
+        mel_basis[mel_name] = mel
+    else:
+        mel = mel_basis[mel_name]
+    if hann_name not in hann_window:
+        _hann_window = torch.hann_window(cfg.win_size).to(y.device)
+        hann_window[hann_name] = _hann_window
+    else:
+        _hann_window = hann_window[hann_name]
 
     y = torch.nn.functional.pad(
         y.unsqueeze(1),
@@ -154,7 +176,7 @@ def extract_mel_features(
         cfg.n_fft,
         hop_length=cfg.hop_size,
         win_length=cfg.win_size,
-        window=hann_window[str(y.device)],
+        window=_hann_window,
         center=center,
         pad_mode="reflect",
         normalized=False,
@@ -164,7 +186,7 @@ def extract_mel_features(
     spec = torch.view_as_real(spec)
     spec = torch.sqrt(spec.pow(2).sum(-1) + (1e-9))
 
-    spec = torch.matmul(mel_basis[str(cfg.fmax) + "_" + str(y.device)], spec)
+    spec = torch.matmul(mel, spec)
     spec = spectral_normalize_torch(spec)
     return spec.squeeze(0)
 

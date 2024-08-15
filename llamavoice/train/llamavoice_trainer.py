@@ -11,18 +11,22 @@ from torch.optim.lr_scheduler import ExponentialLR
 from tqdm import tqdm
 
 # from utils.util import *
-# from utils.mel import mel_spectrogram_torch
 
+from llamavoice.utils.mel import mel_spectrogram_torch
 from llamavoice.train.tts_trainer import TTSTrainer
 from llamavoice.model import LlamaVoice, LlamaVoiceDiscriminator
 from llamavoice.dataset.processor import Processor as P
 from llamavoice.dataset.dataset import Dataset
 from llamavoice.tokenizer.tokenizer import get_tokenizer
-from llamavoice.utils.util import slice_segments, rand_slice_segments
+from llamavoice.utils import get_segments as slice_segments
+from llamavoice.utils.mel import extract_linear_features, extract_mel_features
+from llamavoice.model.loss import (
+    LamaVoiceLoss as GeneratorLoss,
+    DiscriminatorAdversarialLoss as DiscriminatorLoss,
+)
 
 from torch.utils.data import DataLoader
 from transformers.configuration_utils import PretrainedConfig
-
 
 
 class LlamaVoiceTrainer(TTSTrainer):
@@ -62,8 +66,15 @@ class LlamaVoiceTrainer(TTSTrainer):
             token_min_length=C.token_min_length,
         )
         resample = partial(P.resample, resample_rate=C.sample_rate)
+        compute_linear = partial(
+            P.compute_linear, feat_extractor=extract_linear_features, cfg=C
+        )
+        compute_mel = partial(P.compute_mel, feat_extractor=extract_mel_features, cfg=C)
         shuffle = partial(P.shuffle, shuffle_size=C.shuffle_size)
         sort = partial(P.sort, sort_size=C.sort_size)
+        # ------------------- debug only --------------------
+        C.batch_size = 2
+        # ------------------- debug only END ---------------------
         batch = partial(
             P.batch,
             batch_type=C.batch_type,
@@ -76,6 +87,8 @@ class LlamaVoiceTrainer(TTSTrainer):
             P.parquet_opener,
             tokenize,
             filter,
+            compute_linear,
+            compute_mel,
             resample,
             shuffle,
             sort,
@@ -147,120 +160,8 @@ class LlamaVoiceTrainer(TTSTrainer):
         return scheduler
 
     def _build_criterion(self):
-        class GeneratorLoss(nn.Module):
-            def __init__(self, cfg):
-                super(GeneratorLoss, self).__init__()
-                self.cfg = cfg
-                self.l1_loss = nn.L1Loss()
-
-            def generator_loss(self, disc_outputs):
-                loss = 0
-                gen_losses = []
-                for dg in disc_outputs:
-                    dg = dg.float()
-                    l = torch.mean((1 - dg) ** 2)
-                    gen_losses.append(l)
-                    loss += l
-
-                return loss, gen_losses
-
-            def feature_loss(self, fmap_r, fmap_g):
-                loss = 0
-                for dr, dg in zip(fmap_r, fmap_g):
-                    for rl, gl in zip(dr, dg):
-                        rl = rl.float().detach()
-                        gl = gl.float()
-                        loss += torch.mean(torch.abs(rl - gl))
-
-                return loss * 2
-
-            def kl_loss(self, z_p, logs_q, m_p, logs_p, z_mask):
-                """
-                z_p, logs_q: [b, h, t_t]
-                m_p, logs_p: [b, h, t_t]
-                """
-                z_p = z_p.float()
-                logs_q = logs_q.float()
-                m_p = m_p.float()
-                logs_p = logs_p.float()
-                z_mask = z_mask.float()
-
-                kl = logs_p - logs_q - 0.5
-                kl += 0.5 * ((z_p - m_p) ** 2) * torch.exp(-2.0 * logs_p)
-                kl = torch.sum(kl * z_mask)
-                l = kl / torch.sum(z_mask)
-                return l
-
-            def forward(
-                self,
-                outputs_g,
-                outputs_d,
-                y_mel,
-                y_hat_mel,
-            ):
-                loss_g = {}
-
-                # duration loss
-                loss_dur = torch.sum(outputs_g["l_length"].float())
-                loss_g["loss_dur"] = loss_dur
-
-                # mel loss
-                loss_mel = self.l1_loss(y_mel, y_hat_mel) * self.cfg.train.c_mel
-                loss_g["loss_mel"] = loss_mel
-
-                # kl loss
-                loss_kl = (
-                    self.kl_loss(
-                        outputs_g["z_p"],
-                        outputs_g["logs_q"],
-                        outputs_g["m_p"],
-                        outputs_g["logs_p"],
-                        outputs_g["z_mask"],
-                    )
-                    * self.cfg.train.c_kl
-                )
-                loss_g["loss_kl"] = loss_kl
-
-                # feature loss
-                loss_fm = self.feature_loss(outputs_d["fmap_rs"], outputs_d["fmap_gs"])
-                loss_g["loss_fm"] = loss_fm
-
-                # gan loss
-                loss_gen, losses_gen = self.generator_loss(outputs_d["y_d_hat_g"])
-                loss_g["loss_gen"] = loss_gen
-                loss_g["loss_gen_all"] = (
-                    loss_dur + loss_mel + loss_kl + loss_fm + loss_gen
-                )
-
-                return loss_g
-
-        class DiscriminatorLoss(nn.Module):
-            def __init__(self, cfg):
-                super(DiscriminatorLoss, self).__init__()
-                self.cfg = cfg
-                self.l1Loss = torch.nn.L1Loss(reduction="mean")
-
-            def __call__(self, disc_real_outputs, disc_generated_outputs):
-                loss_d = {}
-
-                loss = 0
-                r_losses = []
-                g_losses = []
-                for dr, dg in zip(disc_real_outputs, disc_generated_outputs):
-                    dr = dr.float()
-                    dg = dg.float()
-                    r_loss = torch.mean((1 - dr) ** 2)
-                    g_loss = torch.mean(dg**2)
-                    loss += r_loss + g_loss
-                    r_losses.append(r_loss.item())
-                    g_losses.append(g_loss.item())
-
-                loss_d["loss_disc_all"] = loss
-
-                return loss_d
-
         criterion = {
-            "generator": GeneratorLoss(self.cfg),
+            "generator": GeneratorLoss(self.cfg.loss_config),
             "discriminator": DiscriminatorLoss(self.cfg),
         }
         return criterion
@@ -348,10 +249,10 @@ class LlamaVoiceTrainer(TTSTrainer):
         y_mel = slice_segments(
             batch["mel"],
             outputs_g["ids_slice"],
-            self.cfg.preprocess.segment_size // self.cfg.preprocess.hop_size,
+            self.cfg.decoder_config["segment_size"],
         )
         y_hat_mel = mel_spectrogram_torch(
-            outputs_g["y_hat"].squeeze(1), self.cfg.preprocess
+            outputs_g["predicted_audio"].squeeze(1), self.cfg.dataset
         )
         y = slice_segments(
             batch["audio"],
@@ -360,7 +261,9 @@ class LlamaVoiceTrainer(TTSTrainer):
         )
 
         # Discriminator output
-        outputs_d = self.model["discriminator"](y, outputs_g["y_hat"].detach())
+        outputs_d = self.model["discriminator"](
+            y, outputs_g["predicted_audio"].detach()
+        )
         ##  Discriminator loss
         loss_d = self.criterion["discriminator"](
             outputs_d["y_d_hat_r"], outputs_d["y_d_hat_g"]
@@ -368,7 +271,7 @@ class LlamaVoiceTrainer(TTSTrainer):
         valid_losses.update(loss_d)
 
         ##  Generator
-        outputs_d = self.model["discriminator"](y, outputs_g["y_hat"])
+        outputs_d = self.model["discriminator"](y, outputs_g["predicted_audio"])
         loss_g = self.criterion["generator"](outputs_g, outputs_d, y_mel, y_hat_mel)
         valid_losses.update(loss_g)
 
@@ -398,34 +301,54 @@ class LlamaVoiceTrainer(TTSTrainer):
         # ("text_token_len", torch.Size([16])),
         # ("speech_feat", torch.Size([16, 513, 1578])),
         # ("speech_feat_len", torch.Size([16])),
-        
+
         batch["target_feats"] = batch["speech_feat"]
         batch["target_feats_len"] = batch["speech_feat_len"]
 
         # Train Discriminator
         # Generator output
+        for k, v in batch.items():
+            print("--- input: ", k, v.shape)
+            if k.endswith("_len"):
+                print("value:", v)
         outputs_g = self.model["generator"](batch)
+        for k, v in outputs_g.items():
+            print("--- output: ", k, v.shape)
+            if k.endswith("_len"):
+                print("value:", v)
 
         y_mel = slice_segments(
             batch["mel"],
             outputs_g["ids_slice"],
-            self.cfg.preprocess.segment_size // self.cfg.preprocess.hop_size,
+            self.cfg.decoder_config["segment_size"],
         )
         y_hat_mel = mel_spectrogram_torch(
-            outputs_g["y_hat"].squeeze(1), self.cfg.preprocess
+            outputs_g["predicted_audio"].squeeze(1), self.cfg.dataset
         )
+        print("--- y_mel, y_hat_mel: ", y_mel.shape, y_hat_mel.shape)
+
         y = slice_segments(
-            batch["audio"],
-            outputs_g["ids_slice"] * self.cfg.preprocess.hop_size,
-            self.cfg.preprocess.segment_size,
+            batch["speech"],
+            outputs_g["ids_slice"] * self.cfg.dataset.hop_size,
+            self.cfg.decoder_config["segment_size"] * self.cfg.dataset.hop_size,
         )
+        print("---y", y.shape)
 
         # Discriminator output
-        outputs_d = self.model["discriminator"](y, outputs_g["y_hat"].detach())
-        ##  Discriminator loss
-        loss_d = self.criterion["discriminator"](
-            outputs_d["y_d_hat_r"], outputs_d["y_d_hat_g"]
+        outputs_d_hat = self.model["discriminator"](
+            outputs_g["predicted_audio"].detach()
         )
+        outputs_d = self.model["discriminator"](y)
+
+        ##  Discriminator loss
+
+        real_loss, fake_loss = self.criterion["discriminator"](outputs_d_hat, outputs_d)
+        loss_d = {
+            "loss_disc_all": real_loss + fake_loss,
+            "real": real_loss,
+            "fake": fake_loss,
+        }
+        print("---loss_d", loss_d)
         train_losses.update(loss_d)
 
         # BP and Grad Updated
@@ -434,8 +357,14 @@ class LlamaVoiceTrainer(TTSTrainer):
         self.optimizer["optimizer_d"].step()
 
         ## Train Generator
-        outputs_d = self.model["discriminator"](y, outputs_g["y_hat"])
-        loss_g = self.criterion["generator"](outputs_g, outputs_d, y_mel, y_hat_mel)
+        outputs_d_hat = self.model["discriminator"](outputs_g["predicted_audio"])
+        with torch.no_grad():
+            # do not store discriminator gradient in generator turn
+            outputs_d = self.model["discriminator"](y)
+
+        loss_g = self.criterion["generator"](
+            outputs_g, outputs_d, outputs_d_hat, y_mel, y_hat_mel
+        )
         train_losses.update(loss_g)
 
         # BP and Grad Updated

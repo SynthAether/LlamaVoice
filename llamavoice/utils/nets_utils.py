@@ -7,7 +7,26 @@ from typing import Dict
 
 import numpy as np
 import torch
+from torch.nn import functional as F
 from torch.nn.utils.rnn import pad_sequence, unpad_sequence
+
+
+def build_aligned_inputs_and_targets(input, input_length, start_token=0, stop_token=0):
+    assert input.ndim in [2, 3], "input dimension error"
+    inp = F.pad(input, (1, 0), value=start_token)
+    if input.ndim == 3:
+        input_list = unpad_sequence(
+            input.transpose(1, 2), input_length.cpu(), batch_first=True
+        )
+        input_list = [F.pad(d, (0, 0, 0, 1), value=stop_token) for d in input_list]
+        tar = pad_sequence(input_list, batch_first=True).transpose(1, 2)
+    else:
+        input_list = unpad_sequence(input, input_length.cpu(), batch_first=True)
+        input_list = [F.pad(d, (0, 1), value=stop_token) for d in input_list]
+        tar = pad_sequence(input_list, batch_first=True)
+    input_length = input_length + 1
+    assert input.size(-1) + 1 == inp.size(-1) == tar.size(-1), "input length error"
+    return inp, tar, input_length
 
 
 def pad_unpad_sequence(

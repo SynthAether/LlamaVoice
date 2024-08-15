@@ -167,6 +167,14 @@ def compute_linear(data, feat_extractor, cfg, mode="train"):
         yield sample
 
 
+def compute_mel(data, feat_extractor, cfg, mode="train"):
+    for sample in data:
+        y = sample["speech"]
+        mel = feat_extractor(y, cfg)
+        sample["mel"] = mel
+        yield sample
+
+
 def parse_embedding(data, normalize, mode="train"):
     """Parse utt_embedding/spk_embedding
 
@@ -202,13 +210,11 @@ def tokenize(data, get_tokenizer, allowed_special, mode="train"):
     tokenizer = get_tokenizer()
     for sample in data:
         assert "text" in sample
-        sample["text_token"] = tokenizer.encode(
-            sample["text"], allowed_special=allowed_special
-        )
+        tks = tokenizer.encode(sample["text"], allowed_special=allowed_special)
+        sample["text_token"] = [t + 1 for t in tks]  # 0 is padding
         if mode == "inference":
-            sample["tts_text_token"] = tokenizer.encode(
-                sample["tts_text"], allowed_special=allowed_special
-            )
+            tks = tokenizer.encode(sample["tts_text"], allowed_special=allowed_special)
+            sample["tts_text_token"] = [t + 1 for t in tks]  # 0 is padding
         yield sample
 
 
@@ -362,10 +368,15 @@ def padding(data, use_spk_embedding=False, mode="train"):
         speech_feat_len = torch.tensor(
             [i.size(0) for i in speech_feat], dtype=torch.int32
         )
-
         speech_feat = pad_sequence(
             speech_feat, batch_first=True, padding_value=0
         ).transpose(1, 2)
+
+        mel = [sample[i]["mel"].transpose(0, 1) for i in order]  # [T, C]
+        mel_len = torch.tensor([i.size(0) for i in mel], dtype=torch.int32)
+        mel = pad_sequence(mel, batch_first=True, padding_value=0).transpose(
+            1, 2
+        )  # [B, C, T]
 
         utts = [sample[i]["utt"] for i in order]
         text = [sample[i]["text"] for i in order]
@@ -383,6 +394,8 @@ def padding(data, use_spk_embedding=False, mode="train"):
             "text_token_len": text_token_len,
             "speech_feat": speech_feat,
             "speech_feat_len": speech_feat_len,
+            "mel": mel,
+            "mel_len": mel_len,
         }
         if mode == "inference":
             tts_text = [sample[i]["tts_text"] for i in order]
@@ -417,6 +430,10 @@ class Processor:
     @staticmethod
     def compute_linear(*args, **kwargs):
         return compute_linear(*args, **kwargs)
+
+    @staticmethod
+    def compute_mel(*args, **kwargs):
+        return compute_mel(*args, **kwargs)
 
     @staticmethod
     def resample(*args, **kwargs):
