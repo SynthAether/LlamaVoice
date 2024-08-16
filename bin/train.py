@@ -32,21 +32,18 @@ def main():
         type=str,
         default=None,
         help="json files for configurations. If not specified, use default values",
-        required=True,
     )
     parser.add_argument(
         "--train_data_list",
         type=str,
         default="dump/parquet/train/data.list",
         help="The training data list",
-        required=True,
     )
     parser.add_argument(
         "--val_data_list",
         type=str,
         default="dump/parquet/dev/data.list",
         help="The validation data list",
-        required=True,
     )
     parser.add_argument(
         "--log_dir",
@@ -59,7 +56,6 @@ def main():
         type=str,
         default="llamavoice",
         help="A specific name to note the experiment",
-        required=True,
     )
     parser.add_argument(
         "--resume", action="store_true", help="The model name to restore"
