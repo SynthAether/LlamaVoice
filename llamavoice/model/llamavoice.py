@@ -284,7 +284,7 @@ class LlamaVoice(PreTrainedModel):
         output = ModelOutput(
             lm_m=lm_m.transpose(1, 2),
             lm_logs=lm_logs.transpose(1, 2),
-            flow_z=flow_z,
+            flow_z=flow_z_target,
             vae_m=vae_m_target,
             vae_logs=vae_logs_target,
             vae_mask=vae_mask_target,
