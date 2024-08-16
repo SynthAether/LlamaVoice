@@ -90,8 +90,8 @@ def main():
         cfg = LlamaVoiceConfig()
 
     # ------------------- debug only --------------------
-    C.dataset.batch_size = 2
-    C.train.dataloader.num_worker = 2
+    cfg.dataset.batch_size = 2
+    cfg.train.dataloader.num_worker = 2
     # ------------------- debug only END ---------------------
 
     print("experiment name: ", args.exp_name)
