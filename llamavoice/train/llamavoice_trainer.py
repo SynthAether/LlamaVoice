@@ -72,10 +72,6 @@ class LlamaVoiceTrainer(TTSTrainer):
         compute_mel = partial(P.compute_mel, feat_extractor=extract_mel_features, cfg=C)
         shuffle = partial(P.shuffle, shuffle_size=C.shuffle_size)
         sort = partial(P.sort, sort_size=C.sort_size)
-        # ------------------- debug only --------------------
-        C.batch_size = 2
-        self.cfg.train.dataloader.num_worker = 2
-        # ------------------- debug only END ---------------------
         batch = partial(
             P.batch,
             batch_type=C.batch_type,
@@ -322,6 +318,12 @@ class LlamaVoiceTrainer(TTSTrainer):
         r"""Training epoch. Should return average loss of a batch (sample) over
         one epoch. See ``train_loop`` for usage.
         """
+        if isinstance(self.model, dict):
+            for key in self.model.keys():
+                self.model[key].train()
+        else:
+            self.model.train()
+
         epoch_sum_loss: float = 0.0
         epoch_losses: dict = {}
         epoch_step: int = 0
@@ -335,6 +337,7 @@ class LlamaVoiceTrainer(TTSTrainer):
             smoothing=0.04,
             disable=not self.accelerator.is_main_process,
         ):
+            # Do training step and BP
             with self.accelerator.accumulate(self.model):
                 total_loss, train_losses, training_stats = self._train_step(batch)
             self.batch_count += 1
@@ -366,8 +369,7 @@ class LlamaVoiceTrainer(TTSTrainer):
         self.accelerator.wait_for_everyone()
 
         epoch_sum_loss = (
-            epoch_sum_loss / epoch_step
-            * self.cfg.train.gradient_accumulation_step
+            epoch_sum_loss / epoch_step * self.cfg.train.gradient_accumulation_step
         )
 
         for key in epoch_losses.keys():
@@ -376,6 +378,48 @@ class LlamaVoiceTrainer(TTSTrainer):
                 / epoch_step
                 * self.cfg.train.gradient_accumulation_step
             )
+
+        return epoch_sum_loss, epoch_losses
+
+    @torch.inference_mode()
+    def _valid_epoch(self):
+        r"""Testing epoch. Should return average loss of a batch (sample) over
+        one epoch. See ``train_loop`` for usage.
+        """
+        if isinstance(self.model, dict):
+            for key in self.model.keys():
+                self.model[key].eval()
+        else:
+            self.model.eval()
+
+        epoch_sum_loss: float = 0.0
+        epoch_step: int = 0
+        epoch_losses = dict()
+        for batch in tqdm(
+            self.valid_dataloader,
+            desc=f"Validating Epoch {self.epoch}",
+            unit="batch",
+            colour="GREEN",
+            leave=False,
+            dynamic_ncols=True,
+            smoothing=0.04,
+            disable=not self.accelerator.is_main_process,
+        ):
+            total_loss, valid_losses, valid_stats = self._valid_step(batch)
+            epoch_sum_loss += total_loss
+            epoch_step += 1
+            if isinstance(valid_losses, dict):
+                for key, value in valid_losses.items():
+                    if key not in epoch_losses.keys():
+                        epoch_losses[key] = value
+                    else:
+                        epoch_losses[key] += value
+
+        epoch_sum_loss = epoch_sum_loss / epoch_step
+        for key in epoch_losses.keys():
+            epoch_losses[key] = epoch_losses[key] / epoch_step
+
+        self.accelerator.wait_for_everyone()
 
         return epoch_sum_loss, epoch_losses
 
@@ -396,11 +440,14 @@ def test():
         val_data_list = "dump/parquet/dev/data.list"
 
     c = LlamaVoiceConfig()
+    # ------------------- debug only --------------------
+    C.dataset.batch_size = 2
+    C.train.dataloader.num_worker = 2
+    # ------------------- debug only END ---------------------
     print(c)
     c.log_dir = "logs"
     trainer = LlamaVoiceTrainer(args, c)
     trainer.train_loop()
-    trainer.test_loop()
 
 
 if __name__ == "__main__":
