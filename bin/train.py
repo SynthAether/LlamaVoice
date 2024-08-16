@@ -3,30 +3,13 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
 import argparse
 
 import torch
 
-from models.tts.vits.vits_trainer import VITSTrainer
-
-
-from utils.util import load_config
-
-
-def build_trainer(args, cfg):
-    supported_trainer = {
-        "FastSpeech2": FastSpeech2Trainer,
-        "VITS": VITSTrainer,
-        "VALLE": VALLETrainer,
-        "NaturalSpeech2": NS2Trainer,
-        "VALLE_V2_AR": VALLE_V2_AR,
-        "VALLE_V2_NAR": VALLE_V2_NAR,
-        "Jets": JetsTrainer,
-    }
-
-    trainer_class = supported_trainer[cfg.model_type]
-    trainer = trainer_class(args, cfg)
-    return trainer
+from llamavoice.model import LlamaVoiceConfig
+from llamavoice.train.llamavoice_trainer import LlamaVoiceTrainer
 
 
 def cuda_relevant(deterministic=False):
@@ -46,29 +29,40 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config",
-        default="config.json",
-        help="json files for configurations.",
+        type=str,
+        default=None,
+        help="json files for configurations. If not specified, use default values",
         required=True,
     )
     parser.add_argument(
-        "--seed",
-        type=int,
-        default=1234,
-        help="random seed",
-        required=False,
+        "--train_data_list",
+        type=str,
+        default="dump/parquet/train/data.list",
+        help="The training data list",
+        required=True,
+    )
+    parser.add_argument(
+        "--val_data_list",
+        type=str,
+        default="dump/parquet/dev/data.list",
+        help="The validation data list",
+        required=True,
+    )
+    parser.add_argument(
+        "--log_dir",
+        type=str,
+        default="logs",
+        help="The directory to save logs and checkpoints",
     )
     parser.add_argument(
         "--exp_name",
         type=str,
-        default="exp_name",
+        default="llamavoice",
         help="A specific name to note the experiment",
         required=True,
     )
     parser.add_argument(
         "--resume", action="store_true", help="The model name to restore"
-    )
-    parser.add_argument(
-        "--test", action="store_true", default=False, help="Test the model"
     )
     parser.add_argument(
         "--log_level", default="warning", help="logging level (debug, info, warning)"
@@ -91,56 +85,29 @@ def main():
         default="",
         help="Checkpoint for resume training or finetuning.",
     )
-    # VALLETrainer.add_arguments(parser)
-    args = parser.parse_args()
-    cfg = load_config(args.config)
 
-    # Data Augmentation
-    if hasattr(cfg, "preprocess"):
-        if hasattr(cfg.preprocess, "data_augment"):
-            if (
-                type(cfg.preprocess.data_augment) == list
-                and len(cfg.preprocess.data_augment) > 0
-            ):
-                new_datasets_list = []
-                for dataset in cfg.preprocess.data_augment:
-                    new_datasets = [
-                        (
-                            f"{dataset}_pitch_shift"
-                            if cfg.preprocess.use_pitch_shift
-                            else None
-                        ),
-                        (
-                            f"{dataset}_formant_shift"
-                            if cfg.preprocess.use_formant_shift
-                            else None
-                        ),
-                        (
-                            f"{dataset}_equalizer"
-                            if cfg.preprocess.use_equalizer
-                            else None
-                        ),
-                        (
-                            f"{dataset}_time_stretch"
-                            if cfg.preprocess.use_time_stretch
-                            else None
-                        ),
-                    ]
-                    new_datasets_list.extend(filter(None, new_datasets))
-                cfg.dataset.extend(new_datasets_list)
+    args = parser.parse_args()
+    if args.config and os.path.isfile(args.config):
+        cfg = LlamaVoiceConfig.from_json_file(args.config)
+    else:
+        # use default
+        cfg = LlamaVoiceConfig()
+
+    # ------------------- debug only --------------------
+    C.dataset.batch_size = 2
+    C.train.dataloader.num_worker = 2
+    # ------------------- debug only END ---------------------
 
     print("experiment name: ", args.exp_name)
-    # # CUDA settings
+    # CUDA settings
     cuda_relevant()
 
     # Build trainer
+    cfg.log_dir = args.log_dir
     print(f"Building {cfg.model_type} trainer")
-    trainer = build_trainer(args, cfg)
+    trainer = LlamaVoiceTrainer(args, cfg)
     print(f"Start training {cfg.model_type} model")
-    if args.test:
-        trainer.test_loop()
-    else:
-        trainer.train_loop()
+    trainer.train_loop()
 
 
 if __name__ == "__main__":
