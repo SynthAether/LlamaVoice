@@ -74,6 +74,7 @@ class LlamaVoiceTrainer(TTSTrainer):
         sort = partial(P.sort, sort_size=C.sort_size)
         # ------------------- debug only --------------------
         C.batch_size = 2
+        self.cfg.train.dataloader.num_worker = 2
         # ------------------- debug only END ---------------------
         batch = partial(
             P.batch,
@@ -234,7 +235,7 @@ class LlamaVoiceTrainer(TTSTrainer):
         See ``_test_epoch`` for usage.
         """
 
-        return _train_step(self, batch, no_grad=True)
+        return self._train_step(batch, no_grad=True)
 
     def _train_step(self, batch, no_grad=False):
         r"""Forward step for training and inference. This function is called
@@ -365,15 +366,14 @@ class LlamaVoiceTrainer(TTSTrainer):
         self.accelerator.wait_for_everyone()
 
         epoch_sum_loss = (
-            epoch_sum_loss
-            / len(self.train_dataloader)
+            epoch_sum_loss / epoch_step
             * self.cfg.train.gradient_accumulation_step
         )
 
         for key in epoch_losses.keys():
             epoch_losses[key] = (
                 epoch_losses[key]
-                / len(self.train_dataloader)
+                / epoch_step
                 * self.cfg.train.gradient_accumulation_step
             )
 
@@ -392,8 +392,8 @@ def test():
         ar_model_ckpt_dir = ""
         resume_type = "resume"  # [resume, finetune]. Resume training or finetuning
         # data
-        train_data_list = "LibriTTS/data/dev-clean/parquet/data.list"
-        val_data_list = "LibriTTS/data/dev-clean/parquet/data.list"
+        train_data_list = "dump/parquet/train/data.list"
+        val_data_list = "dump/parquet/dev/data.list"
 
     c = LlamaVoiceConfig()
     print(c)
