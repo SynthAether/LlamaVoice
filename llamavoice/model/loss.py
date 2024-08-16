@@ -745,10 +745,7 @@ class LamaVoiceLoss(nn.Module):
         )
         loss_g["total_kl_loss"] = kl_loss
 
-        print("kl loss", kl_loss)
-
         # 2. stop loss
-        print("--- stop_predict", outputs_g.stop_predict.shape)
         stop_target = torch.ones_like(outputs_g.stop_predict)
         mask = (
             torch.arange(
@@ -756,21 +753,17 @@ class LamaVoiceLoss(nn.Module):
             )[None, :]
             < outputs_g.target_feats_len[:, None] - 1
         )
-        print("--- mask", mask, mask.shape)
         stop_target[mask] = 0.0
         stop_loss = (
             self.bce(outputs_g.stop_predict, stop_target) * self.config.stop_coeff
         )
         loss_g["stop_loss"] = stop_loss
-        print("--- stop_loss", stop_loss)
 
         # 3. text loss
-        print("--- shape", outputs_g.text_logits.shape, outputs_g.text_targets.shape)
         text_loss = F.cross_entropy(
             outputs_g.text_logits.transpose(1, 2), outputs_g.text_targets
         )
         text_loss = text_loss * self.config.text_coeff
-        print("--- text_loss", text_loss)
         loss_g["text_loss"] = text_loss
 
         # 4. mel loss
@@ -781,88 +774,14 @@ class LamaVoiceLoss(nn.Module):
         # 5. adv loss
         adv_loss = self.generator_adv_loss(outputs_d_hat)
         adv_loss = adv_loss * self.config.generator_adv_coeff
-        print("--- adv_loss", adv_loss)
         loss_g["adv_loss"] = adv_loss
 
         # 6. feat match loss
         feat_match_loss = self.feat_match_loss(outputs_d_hat, outputs_d)
         feat_match_loss = feat_match_loss * self.config.feat_match_coeff
         loss_g["feat_match_loss"] = feat_match_loss
-        print("--- feat_match_loss", feat_match_loss)
 
         loss = kl_loss + stop_loss + text_loss + mel_loss + adv_loss + feat_match_loss
         loss_g["loss_gen_all"] = loss
-        print(loss)
 
         return loss_g
-
-
-"""
-  if self.use_flow:
-    kl_loss = self.kl_loss(z_p, logs_q, m_p, logs_p, z_mask)
-else:
-    kl_loss = self.kl_loss(m_q, logs_q, m_p, logs_p)
-
-
-posterior_encoder output: posterior_z, posterior_mean, posterior_logstd, y_mask
-if self.use_flow:
-    z_flow = self.flow(posterior_z, y_mask, g=g)
-else:
-    z_flow = None
-
-p_z = posterior_z
-p_z = self.dropout(p_z)
-
-
-# get random segments
-z_segments, z_start_idxs = get_random_segments(
-    p_z, feats_lengths, self.segment_size
-)
-
- output = (wav, z_start_idxs, x_mask, y_mask, common_tuple)
-if self.vocoder_generator_type == "visinger2":
-    output = output + (dsp_slice.sum(1),)
-if self.generator_type == "visinger2":
-    output = output + (predict_mel,)
-
-common_tuple = (
-posterior_z,
-z_flow,
-prior_mean,
-prior_logstd,
-posterior_mean,
-posterior_logstd,
-predict_lf0,
-LF0 * predict_bn_mask,
-predict_dur,
-gt_dur,
-log_probs,
-)
-
-(
-_,
-z_p,
-m_p,
-logs_p,
-m_q,
-logs_q,
-pred_pitch,
-gt_pitch,
-pred_dur,
-gt_dur,
-log_probs,
-) = outs_
-
-if self.use_flow:
-    kl_loss = self.kl_loss(z_p, logs_q, m_p, logs_p, z_mask)
-else:
-    kl_loss = self.kl_loss(m_q, logs_q, m_p, logs_p)
-
-
-kl_loss = self.kl_loss(z_p, logs_q, m_p, logs_p, z_mask)
-
-kl_distance: 
-
-1. with flow: flow_z, vae_logs <> prior_z, prior_logstd
-2. no flow: vae_z, vae_logs <> prior_z, prior_logstd
-"""

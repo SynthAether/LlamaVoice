@@ -220,7 +220,6 @@ class LlamaVoice(PreTrainedModel):
 
         # 4. prepare llm input and target
         vae_mask_target = torch.nn.functional.pad(vae_mask, (1, 0), value=1)
-        print("--- text_token", text_token.shape)
         text_token, text_targets, text_token_len = build_aligned_inputs_and_targets(
             text_token,
             text_token_len,
@@ -228,7 +227,6 @@ class LlamaVoice(PreTrainedModel):
             self.config.eos_token_id,
         )
         text_embed = self.text_embedding(text_token)
-        print("text embed", text_embed.shape)
         prompt_flow_z, prompt_z_target, prompt_len = build_aligned_inputs_and_targets(
             prompt_flow_z, prompt_feats_len
         )
@@ -254,30 +252,21 @@ class LlamaVoice(PreTrainedModel):
         )  # (B, T, C), (B, )
 
         # 5. run lm forward
-        print("lm input", lm_input.shape)
         outputs: BaseModelOutputWithPast = self.gpt(
             inputs_embeds=lm_input, use_cache=False, output_attentions=False
         )
         # 6. parse llm output
-        print("output", outputs.last_hidden_state.shape)
-        print("length", text_token_len, prompt_len, z_len)
         text_logits, prompt_logits, dist_logits = split_hidden_states(
             outputs.last_hidden_state,
             text_token_len,
             prompt_len,
             z_len,
         )
-        print("text_logits", text_logits.shape)
-        print("dist_logits", dist_logits.shape)
-        print("prompt_logits", prompt_logits.shape)
 
         # 7. multi-head prediction
         text_logits = self.text_head(text_logits)
         lm_z, lm_m, lm_logs = self.dist_sampling(dist_logits)
         plm_z, plm_m, plm_logs = self.dist_sampling(prompt_logits)
-        print("---text_logits", text_logits.shape)
-        print("lm_z lm_m lm_logs", lm_z.shape, lm_m.shape, lm_logs.shape)
-        print("plm_z plm_m plm_logs", plm_z.shape, plm_m.shape, plm_logs.shape)
         # stop token prediction
         stop = self.stop_proj(dist_logits)
         stop = torch.sigmoid(stop)
@@ -288,37 +277,10 @@ class LlamaVoice(PreTrainedModel):
             target_feats_len,
             self.config.decoder_config["segment_size"],
         )
-        """
-        sliced_target_audio = get_segments(
-            x=target_audio,
-            start_idxs=start_idxs * self.upsample_factor,
-            segment_size=self.config.decoder_config["segment_size"]
-            * self.upsample_factor,
-        )
-        """
 
         # forward decoder with random segments
-        print(z_segments.shape)
         gen_wav = self.decoder(z_segments)
-        print("--- gen_wav shape", gen_wav.shape)
 
-        """
-        # calculate discriminator outputs
-        p_hat = self.discriminator(gen_wav)
-        with torch.no_grad():
-            # do not store discriminator gradient in generator turn
-            p = self.discriminator(sliced_target_audio)
-        """
-
-        """
-        lm_m: llm predict mean
-        lm_logs: llm predict scale
-        flow_z: target flow mean
-        vae_m: target vae mean
-        vae_logs: target flow scale
-        vae_mask: target vae mask
-        """
-        print("---vae_mask", vae_mask, vae_mask.shape)
         output = ModelOutput(
             lm_m=lm_m.transpose(1, 2),
             lm_logs=lm_logs.transpose(1, 2),

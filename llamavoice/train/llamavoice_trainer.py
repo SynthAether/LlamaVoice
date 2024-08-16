@@ -250,15 +250,7 @@ class LlamaVoiceTrainer(TTSTrainer):
 
         # Train Discriminator
         # Generator output
-        for k, v in batch.items():
-            print("--- input: ", k, v.shape)
-            if k.endswith("_len"):
-                print("value:", v)
         outputs_g = self.model["generator"](batch)
-        for k, v in outputs_g.items():
-            print("--- output: ", k, v.shape)
-            if k.endswith("_len"):
-                print("value:", v)
 
         y_mel = slice_segments(
             batch["mel"],
@@ -268,14 +260,12 @@ class LlamaVoiceTrainer(TTSTrainer):
         y_hat_mel = mel_spectrogram_torch(
             outputs_g["predicted_audio"].squeeze(1), self.cfg.dataset
         )
-        print("--- y_mel, y_hat_mel: ", y_mel.shape, y_hat_mel.shape)
 
         y = slice_segments(
             batch["speech"],
             outputs_g["ids_slice"] * self.cfg.dataset.hop_size,
             self.cfg.decoder_config["segment_size"] * self.cfg.dataset.hop_size,
         )
-        print("---y", y.shape)
 
         # Discriminator output
         outputs_d_hat = self.model["discriminator"](
@@ -291,7 +281,6 @@ class LlamaVoiceTrainer(TTSTrainer):
             "real": real_loss,
             "fake": fake_loss,
         }
-        print("---loss_d", loss_d)
         train_losses.update(loss_d)
 
         # BP and Grad Updated
