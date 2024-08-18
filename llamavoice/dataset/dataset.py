@@ -172,7 +172,7 @@ def test():
     from llamavoice.utils.mel import extract_linear_features, extract_mel_features
 
     C = LlamaVoiceConfig()
-    cv_data = train_data = "LibriTTS/data/dev-clean/parquet/data.list"
+    cv_data = train_data = "dump/parquet/dev/data.list"
     get_tokenizer = partial(
         get_tokenizer,
         multilingual=C.dataset.multilingual,
