@@ -109,7 +109,7 @@ class LlamaVoiceTrainer(TTSTrainer):
         # do not use persistent_workers=True, as whisper tokenizer opens tiktoken file each time when the for loop starts
         train_data_loader = DataLoader(
             train_dataset,
-            batch_size=self.cfg.train.dataloader.batch_size,
+            batch_size=C.batch_size,
             pin_memory=self.cfg.train.dataloader.pin_memory,
             num_workers=self.cfg.train.dataloader.num_worker,
             prefetch_factor=C.prefetch,
@@ -117,7 +117,7 @@ class LlamaVoiceTrainer(TTSTrainer):
         )
         cv_data_loader = DataLoader(
             cv_dataset,
-            batch_size=self.cfg.train.dataloader.batch_size,
+            batch_size=C.batch_size,
             pin_memory=self.cfg.train.dataloader.pin_memory,
             num_workers=self.cfg.train.dataloader.num_worker,
             prefetch_factor=C.prefetch,
