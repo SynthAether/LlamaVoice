@@ -32,8 +32,6 @@ def build_aligned_inputs_and_targets(input, input_length, start_token=0, stop_to
 def pad_unpad_sequence(
     text_embed, text_token_len, feats, feats_len, target, target_len, IGNORE_ID=-1
 ):
-    print("---input shape", text_embed.shape, feats.shape, target.shape)
-    print("--- input length", text_token_len, feats_len, target_len)
     text_embed = unpad_sequence(text_embed, text_token_len.cpu(), batch_first=True)
     feats = unpad_sequence(feats, feats_len.cpu(), batch_first=True)
     target = unpad_sequence(target, target_len.cpu(), batch_first=True)

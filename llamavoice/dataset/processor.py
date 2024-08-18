@@ -418,6 +418,78 @@ def padding(data, use_spk_embedding=False, mode="train"):
         yield batch
 
 
+class LamaVoiceCollator(object):
+    def __init__(self, mode: str = "train"):
+        self.mode = mode
+
+    def __call__(self, sample):
+        mode = self.mode
+        assert isinstance(sample, list)
+        speech_len = torch.tensor(
+            [x["speech"].size(-1) for x in sample], dtype=torch.int32
+        )
+        order = torch.argsort(speech_len, descending=True)
+
+        # variable length must be the first dimension
+        speech = [sample[i]["speech"].transpose(0, 1) for i in order]
+        speech = pad_sequence(speech, batch_first=True, padding_value=0).transpose(1, 2)
+
+        speech_feat = [
+            sample[i]["speech_feat"].transpose(0, 1) for i in order
+        ]  # [T, C]
+        speech_feat_len = torch.tensor(
+            [i.size(0) for i in speech_feat], dtype=torch.int32
+        )
+        speech_feat = pad_sequence(
+            speech_feat, batch_first=True, padding_value=0
+        ).transpose(1, 2)
+
+        mel = [sample[i]["mel"].transpose(0, 1) for i in order]  # [T, C]
+        mel_len = torch.tensor([i.size(0) for i in mel], dtype=torch.int32)
+        mel = pad_sequence(mel, batch_first=True, padding_value=0).transpose(
+            1, 2
+        )  # [B, C, T]
+
+        utts = [sample[i]["utt"] for i in order]
+        text = [sample[i]["text"] for i in order]
+
+        text_token = [torch.tensor(sample[i]["text_token"]) for i in order]
+        text_token_len = torch.tensor(
+            [i.size(0) for i in text_token], dtype=torch.int32
+        )
+        text_token = pad_sequence(text_token, batch_first=True, padding_value=0)
+
+        batch = {
+            "speech": speech,
+            "speech_len": speech_len,
+            "text_token": text_token,
+            "text_token_len": text_token_len,
+            "speech_feat": speech_feat,
+            "speech_feat_len": speech_feat_len,
+            "mel": mel,
+            "mel_len": mel_len,
+        }
+        if mode == "inference":
+            tts_text = [sample[i]["tts_text"] for i in order]
+            tts_index = [sample[i]["tts_index"] for i in order]
+            tts_text_token = [torch.tensor(sample[i]["tts_text_token"]) for i in order]
+            tts_text_token_len = torch.tensor(
+                [i.size(0) for i in tts_text_token], dtype=torch.int32
+            )
+            tts_text_token = pad_sequence(
+                tts_text_token, batch_first=True, padding_value=-1
+            )
+            batch.update(
+                {
+                    "tts_text": tts_text,
+                    "tts_index": tts_index,
+                    "tts_text_token": tts_text_token,
+                    "tts_text_token_len": tts_text_token_len,
+                }
+            )
+        return batch
+
+
 class Processor:
     @staticmethod
     def parquet_opener(*args, **kwargs):

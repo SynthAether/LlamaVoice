@@ -206,6 +206,7 @@ class TTSTrainer(BaseTrainer):
         self.accelerator = accelerate.Accelerator(
             gradient_accumulation_steps=self.cfg.train.gradient_accumulation_step,
             log_with=self.cfg.train.tracker,
+            dispatch_batches=self.cfg.train.dispatch_batches,
             project_config=project_config,
             kwargs_handlers=[kwargs],
         )

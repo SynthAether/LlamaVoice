@@ -165,7 +165,7 @@ def Dataset(
 
 
 def test():
-    from llamavoice.dataset.processor import Processor as P
+    from llamavoice.dataset.processor import Processor as P, LamaVoiceCollator
     from llamavoice.model import LlamaVoiceConfig
     from llamavoice.tokenizer.tokenizer import get_tokenizer
     from torch.utils.data import DataLoader
@@ -216,8 +216,6 @@ def test():
         resample,
         shuffle,
         sort,
-        batch,
-        padding,
     ]
 
     train_dataset = Dataset(
@@ -235,24 +233,27 @@ def test():
         partition=False,
     )
 
+    collator = LamaVoiceCollator()
     # do not use persistent_workers=True, as whisper tokenizer opens tiktoken file each time when the for loop starts
     train_data_loader = DataLoader(
         train_dataset,
-        batch_size=None,
+        batch_size=C.dataset.batch_size,
         pin_memory=C.train.dataloader.pin_memory,
         num_workers=C.train.dataloader.num_worker,
         prefetch_factor=C.dataset.prefetch,
+        collate_fn=collator,
     )
     cv_data_loader = DataLoader(
         cv_dataset,
-        batch_size=None,
+        batch_size=C.dataset.batch_size,
         pin_memory=C.train.dataloader.pin_memory,
         num_workers=C.train.dataloader.num_worker,
         prefetch_factor=C.dataset.prefetch,
+        collate_fn=collator,
     )
     from accelerate import Accelerator
 
-    accelerator = Accelerator()
+    accelerator = Accelerator(dispatch_batches=False)
     train_data_loader, cv_data_loader = accelerator.prepare(
         train_data_loader, cv_data_loader
     )

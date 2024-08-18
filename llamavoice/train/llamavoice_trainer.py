@@ -15,7 +15,7 @@ from tqdm import tqdm
 from llamavoice.utils.mel import mel_spectrogram_torch
 from llamavoice.train.tts_trainer import TTSTrainer
 from llamavoice.model import LlamaVoice, LlamaVoiceDiscriminator
-from llamavoice.dataset.processor import Processor as P
+from llamavoice.dataset.processor import Processor as P, LamaVoiceCollator
 from llamavoice.dataset.dataset import Dataset
 from llamavoice.tokenizer.tokenizer import get_tokenizer
 from llamavoice.utils import get_segments as slice_segments
@@ -89,8 +89,6 @@ class LlamaVoiceTrainer(TTSTrainer):
             resample,
             shuffle,
             sort,
-            batch,
-            padding,
         ]
 
         train_dataset = Dataset(
@@ -107,20 +105,23 @@ class LlamaVoiceTrainer(TTSTrainer):
             shuffle=False,
             partition=False,
         )
+        collator = LamaVoiceCollator()
         # do not use persistent_workers=True, as whisper tokenizer opens tiktoken file each time when the for loop starts
         train_data_loader = DataLoader(
             train_dataset,
-            batch_size=None,
+            batch_size=self.cfg.train.dataloader.batch_size,
             pin_memory=self.cfg.train.dataloader.pin_memory,
             num_workers=self.cfg.train.dataloader.num_worker,
             prefetch_factor=C.prefetch,
+            collate_fn=collator,
         )
         cv_data_loader = DataLoader(
             cv_dataset,
-            batch_size=None,
+            batch_size=self.cfg.train.dataloader.batch_size,
             pin_memory=self.cfg.train.dataloader.pin_memory,
             num_workers=self.cfg.train.dataloader.num_worker,
             prefetch_factor=C.prefetch,
+            collate_fn=collator,
         )
         return train_data_loader, cv_data_loader
 
@@ -441,8 +442,8 @@ def test():
 
     c = LlamaVoiceConfig()
     # ------------------- debug only --------------------
-    C.dataset.batch_size = 2
-    C.train.dataloader.num_worker = 2
+    c.dataset.batch_size = 2
+    c.train.dataloader.num_worker = 2
     # ------------------- debug only END ---------------------
     print(c)
     c.log_dir = "logs"

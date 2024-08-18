@@ -128,6 +128,7 @@ class Loss:
 class Train:
     gradient_accumulation_step: int = 1
     tracker: tuple = ("tensorboard",)
+    dispatch_batches: bool = False  # for accelerate, False when using multi-gpu
     max_epoch: int = 1000
     save_checkpoint_stride: tuple = (500,)
     keep_last: tuple = (1,)
