@@ -88,8 +88,12 @@ def filter(
             BytesIO(sample["audio_data"])
         )
         del sample["audio_data"]
-        # sample['wav'] is torch.Tensor, we have 100 frames every second
-        num_frames = sample["speech"].size(1) / sample["sample_rate"] * 100
+        # sample['speech'] is torch.Tensor with shape (1, T)
+        # we have 93.75 (=24000/256) frames every second
+        frames_per_second = 93.75  # 1 frame has 256 samples
+        num_frames = (
+            sample["speech"].size(1) / sample["sample_rate"] * frames_per_second
+        )
         if num_frames < min_length:
             continue
         if num_frames > max_length:

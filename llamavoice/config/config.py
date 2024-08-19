@@ -129,6 +129,9 @@ class Train:
     gradient_accumulation_step: int = 1
     tracker: tuple = ("tensorboard",)
     dispatch_batches: bool = False  # for accelerate, False when using multi-gpu
+    split_batches: bool = (
+        True  # if True, the batch_size must be a round multiple of num_worker
+    )
     max_epoch: int = 1000
     save_checkpoint_stride: tuple = (500,)
     keep_last: tuple = (1,)
@@ -157,8 +160,8 @@ class Dataset:
     task: str = "transcribe"
     allowed_special: str = "all"
     # filter
-    max_length: int = 40960
-    min_length: int = 0
+    max_length: int = 4096  # about 43 seconds (=4096/93.75)
+    min_length: int = 1
     token_max_length: int = 200
     token_min_length: int = 1
     # resample
