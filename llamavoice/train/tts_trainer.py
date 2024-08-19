@@ -203,10 +203,11 @@ class TTSTrainer(BaseTrainer):
             logging_dir=os.path.join(self.exp_dir, "log"),
         )
         kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+        dataloader_config = accelerate.DataLoaderConfiguration(dispatch_batches=self.cfg.train.dispatch_batches)
         self.accelerator = accelerate.Accelerator(
             gradient_accumulation_steps=self.cfg.train.gradient_accumulation_step,
             log_with=self.cfg.train.tracker,
-            dispatch_batches=self.cfg.train.dispatch_batches,
+            dataloader_config=dataloader_config,
             project_config=project_config,
             kwargs_handlers=[kwargs],
         )
