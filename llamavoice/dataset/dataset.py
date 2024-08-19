@@ -241,6 +241,7 @@ def test():
         pin_memory=C.train.dataloader.pin_memory,
         num_workers=C.train.dataloader.num_worker,
         prefetch_factor=C.dataset.prefetch,
+        drop_last=C.dataset.drop_last,
         collate_fn=collator,
     )
     cv_data_loader = DataLoader(
@@ -249,6 +250,7 @@ def test():
         pin_memory=C.train.dataloader.pin_memory,
         num_workers=C.train.dataloader.num_worker,
         prefetch_factor=C.dataset.prefetch,
+        drop_last=C.dataset.drop_last,
         collate_fn=collator,
     )
     from accelerate import Accelerator

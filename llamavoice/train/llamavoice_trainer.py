@@ -113,6 +113,7 @@ class LlamaVoiceTrainer(TTSTrainer):
             pin_memory=self.cfg.train.dataloader.pin_memory,
             num_workers=self.cfg.train.dataloader.num_worker,
             prefetch_factor=C.prefetch,
+            drop_last=C.drop_last,
             collate_fn=collator,
         )
         cv_data_loader = DataLoader(
@@ -121,6 +122,7 @@ class LlamaVoiceTrainer(TTSTrainer):
             pin_memory=self.cfg.train.dataloader.pin_memory,
             num_workers=self.cfg.train.dataloader.num_worker,
             prefetch_factor=C.prefetch,
+            drop_last=C.drop_last,
             collate_fn=collator,
         )
         return train_data_loader, cv_data_loader

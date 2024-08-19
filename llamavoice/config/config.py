@@ -183,6 +183,7 @@ class Dataset:
     fmin: int = 0
     fmax: int = None
     # dataloader
+    drop_last: bool = True
     prefetch: int = 5  # 100
 
 
