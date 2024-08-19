@@ -60,7 +60,7 @@ class LlamaVoiceConfig(PretrainedConfig):
         self.pad_token_id = 0
         self.eos_token_id = self.num_text_tokens - 2
         # speech prompt
-        self.speech_prompt_segment_size = kwargs.get("speech_prompt_segment_size", 64)
+        self.speech_prompt_segment_size = kwargs.get("speech_prompt_segment_size", 48)
         super().__init__(**kwargs)
 
 

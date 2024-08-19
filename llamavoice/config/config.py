@@ -49,7 +49,7 @@ class Decoder:
     decoder_resblock_kernel_sizes: tuple = (3, 7, 11)
     decoder_resblock_dilations: tuple = ((1, 3, 5), (1, 3, 5), (1, 3, 5))
     use_weight_norm_in_decoder: bool = True
-    segment_size: int = 64
+    segment_size: int = 32
 
 
 @dataclass(repr=False, eq=False)
@@ -160,8 +160,8 @@ class Dataset:
     task: str = "transcribe"
     allowed_special: str = "all"
     # filter
-    max_length: int = 4096  # about 43 seconds (=4096/93.75)
-    min_length: int = 1
+    max_length: int = 2048  # about 22 seconds (=2048/93.75)
+    min_length: int = 64
     token_max_length: int = 200
     token_min_length: int = 1
     # resample
