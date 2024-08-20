@@ -130,7 +130,7 @@ class Train:
     tracker: tuple = ("tensorboard",)
     dispatch_batches: bool = False  # for accelerate, False when using multi-gpu
     split_batches: bool = (
-        True  # if True, the batch_size must be a round multiple of num_worker
+        False  # if True, the batch_size must be a round multiple of num_worker
     )
     max_epoch: int = 1000
     save_checkpoint_stride: tuple = (500,)
@@ -149,6 +149,7 @@ class Train:
         default_factory=lambda: {"betas": (0.8, 0.99), "eps": 1e-9}
     )
     lr_decay: float = 0.999875
+    wait_interval: int = 100
 
 
 @dataclass(repr=False, eq=False)

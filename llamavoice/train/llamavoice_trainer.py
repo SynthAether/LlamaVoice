@@ -368,6 +368,9 @@ class LlamaVoiceTrainer(TTSTrainer):
                 )
                 self.step += 1
                 epoch_step += 1
+                if epoch_step % self.cfg.train.wait_interval == 0:
+                    # Synchronize early to avoid timeout
+                    self.accelerator.wait_for_everyone()
 
         self.accelerator.wait_for_everyone()
 
@@ -417,6 +420,9 @@ class LlamaVoiceTrainer(TTSTrainer):
                         epoch_losses[key] = value
                     else:
                         epoch_losses[key] += value
+            if epoch_step % self.cfg.train.wait_interval == 0:
+                # Synchronize early to avoid timeout
+                self.accelerator.wait_for_everyone()
 
         epoch_sum_loss = epoch_sum_loss / epoch_step
         for key in epoch_losses.keys():

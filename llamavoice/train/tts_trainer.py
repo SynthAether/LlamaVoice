@@ -314,7 +314,8 @@ class TTSTrainer(BaseTrainer):
         self.logger.info("Load model from {}".format(checkpoint_path))
         print("Load model from {}".format(checkpoint_path))
         if resume_type == "resume":
-            self.accelerator.load_state(checkpoint_path)
+            if self.accelerator.is_main_process:
+                self.accelerator.load_state(checkpoint_path)
             self.epoch = int(checkpoint_path.split("_")[-3].split("-")[-1]) + 1
             self.step = int(checkpoint_path.split("_")[-2].split("-")[-1]) + 1
         elif resume_type == "finetune":
