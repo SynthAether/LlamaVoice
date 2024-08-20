@@ -359,6 +359,10 @@ class TTSTrainer(BaseTrainer):
             self.logger.info("\n")
             self.logger.info("-" * 32)
             self.logger.info("Epoch {}: ".format(self.epoch))
+            if hasattr(self.train_dataloader.dataset, "set_epoch") and callable(
+                self.train_dataloader.dataset.set_epoch
+            ):
+                self.train_dataloader.dataset.set_epoch(self.epoch)
 
             # Do training & validating epoch
             train_total_loss, train_losses = self._train_epoch()
