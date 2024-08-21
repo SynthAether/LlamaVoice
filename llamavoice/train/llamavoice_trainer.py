@@ -346,6 +346,8 @@ class LlamaVoiceTrainer(TTSTrainer):
             self.batch_count += 1
 
             if self.batch_count % self.cfg.train.gradient_accumulation_step == 0:
+                for k in self.model.keys():
+                    torch.nn.utils.clip_grad_norm_(self.model[k].parameters(), 1.0)
                 epoch_sum_loss += total_loss
                 for key, value in train_losses.items():
                     if key not in epoch_losses.keys():
