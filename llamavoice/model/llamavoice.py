@@ -261,6 +261,7 @@ class LlamaVoice(PreTrainedModel):
             text_token_len,
             prompt_len,
             z_len,
+            0
         )
 
         # 7. multi-head prediction
