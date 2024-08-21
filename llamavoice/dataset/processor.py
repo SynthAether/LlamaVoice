@@ -38,6 +38,7 @@ def parquet_opener(data, mode="train", tts_data={}):
         assert "src" in sample
         url = sample["src"]
         try:
+            print("--------url", url)
             df = pq.read_table(url).to_pandas()
             for i in range(len(df)):
                 if mode == "inference" and df.loc[i, "utt"] not in tts_data:

@@ -302,6 +302,20 @@ class LlamaVoice(PreTrainedModel):
         )
         return output
 
+    def analysis_synthesis(self, batch):
+        target_feats = batch["target_feats"]
+        target_feats_len = batch["target_feats_len"]
+
+        vae_z, vae_m, vae_logs, vae_mask = self.posterior_encoder(
+            target_feats, target_feats_len
+        )
+        gen_wav = self.decoder(vae_z)
+        return ModelOutput(predicted_audio=gen_wav)
+
+    def remove_weight_norm(self):
+        self.decoder.remove_weight_norm()
+        self.flow.remove_weight_norm()
+
 
 def test():
     c = LlamaVoiceConfig()
