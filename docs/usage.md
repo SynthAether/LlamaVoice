@@ -31,7 +31,10 @@ accelerate launch --num_machines=1 --dynamo_backend=no --mixed_precision="fp16" 
 ### 4.1 Analysis synthesis
 
 ```bash
-
+export PYTHONPATH=`pwd`
+python bin/analysis_synthesis.py \
+      --checkpoint_path logs/llamavoice/checkpoint/epoch-*/model.safetensors \
+      --wav_scp wav.scp --save_path output_analysis_synthesis
 
 ```
 
