@@ -26,7 +26,7 @@ def build_aligned_inputs_and_targets(input, input_length, start_token=0, stop_to
         tar = pad_sequence(input_list, batch_first=True)
     input_length = input_length + 1
     assert input.size(-1) + 1 == inp.size(-1) == tar.size(-1), "input length error"
-    return inp, tar, input_length
+    return inp, tar.detach(), input_length
 
 
 def pad_unpad_sequence(

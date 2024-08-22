@@ -244,9 +244,9 @@ class LlamaVoice(PreTrainedModel):
         lm_input, lm_input_len = pad_unpad_sequence(
             text_embed,
             text_token_len,
-            prompt_flow_z.transpose(1, 2),
+            prompt_flow_z.transpose(1, 2).detach(),
             prompt_len,
-            flow_z.transpose(1, 2),
+            flow_z.transpose(1, 2).detach(),
             z_len,
             IGNORE_ID=0,
         )  # (B, T, C), (B, )
