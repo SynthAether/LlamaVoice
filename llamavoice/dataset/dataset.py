@@ -211,9 +211,9 @@ def test():
         P.parquet_opener,
         tokenize,
         filter,
+        resample,
         compute_linear,
         compute_mel,
-        resample,
         shuffle,
         sort,
     ]
