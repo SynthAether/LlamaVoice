@@ -57,7 +57,7 @@ def check_nan(x, name="Tensor"):
         has_nan_in_any_tensor = False
         for key, tensor in x.items():
             if isinstance(tensor, torch.Tensor):
-                if check_tensor(tensor, f"{tensor_name}, key {key}"):
+                if check_tensor(tensor, f"{name}, key {key}"):
                     has_nan_in_any_tensor = True
             else:
                 print(f"Item '{key}' is not a Tensor. Skipping...")
@@ -68,7 +68,7 @@ def check_nan(x, name="Tensor"):
         has_nan_in_any_tensor = False
         for i, tensor in enumerate(x):
             if isinstance(tensor, torch.Tensor):
-                if check_tensor(tensor, f"{tensor_name}, index {i}"):
+                if check_tensor(tensor, f"{name}, index {i}"):
                     has_nan_in_any_tensor = True
             else:
                 print(f"Item at index {i} is not a Tensor. Skipping...")
