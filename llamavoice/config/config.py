@@ -27,6 +27,7 @@ class AudioEncoder:
 
 @dataclass(repr=False, eq=False)
 class FLOW:
+    disable: bool = True  # disable flow or not
     hidden_channels: int = 192
     flow_flows: int = 4
     flow_kernel_size: int = 5

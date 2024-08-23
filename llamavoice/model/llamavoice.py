@@ -135,6 +135,9 @@ class LlamaVoice(PreTrainedModel):
 
     def _build_flow(self, config: dict):
         config = PretrainedConfig(**config)
+        self.disable_flow = config.disable
+        if self.disable_flow:
+            return None
         return ResidualAffineCouplingBlock(
             in_channels=self.model_dim,
             hidden_channels=config.hidden_channels,
@@ -214,10 +217,11 @@ class LlamaVoice(PreTrainedModel):
         )
 
         # 3. flow
-        flow_z = self.flow(vae_z.detach(), vae_mask)  # (B, H, T_feats)
-        with torch.no_grad():
-            prompt_flow_z = self.flow(prompt_z.detach(), prompt_mask)
-        check_nan([flow_z, prompt_flow_z], "flow [flow_z, prompt_flow_z]")
+        if self.flow is not None:
+            flow_z = self.flow(vae_z.detach(), vae_mask)  # (B, H, T_feats)
+            with torch.no_grad():
+                prompt_flow_z = self.flow(prompt_z.detach(), prompt_mask)
+            check_nan([flow_z, prompt_flow_z], "flow [flow_z, prompt_flow_z]")
 
         # 4. prepare llm input and target
         vae_mask_target = torch.nn.functional.pad(vae_mask, (1, 0), value=1)
@@ -228,16 +232,38 @@ class LlamaVoice(PreTrainedModel):
             self.config.eos_token_id,
         )
         text_embed = self.text_embedding(text_token)
-        prompt_flow_z, prompt_z_target, prompt_len = build_aligned_inputs_and_targets(
-            prompt_flow_z, prompt_feats_len, detach_input=True, detach_target=False
-        )
+        if self.flow is not None:
+            prompt_flow_z, prompt_z_target, prompt_len = (
+                build_aligned_inputs_and_targets(
+                    prompt_flow_z,
+                    prompt_feats_len,
+                    detach_input=True,
+                    detach_target=False,
+                )
+            )
+            flow_z, flow_z_target, z_len = build_aligned_inputs_and_targets(
+                flow_z, target_feats_len, detach_input=True, detach_target=False
+            )
+        else:
+            prompt_flow_z, prompt_z_target, prompt_len = (
+                build_aligned_inputs_and_targets(
+                    prompt_z,
+                    prompt_feats_len,
+                    detach_input=True,
+                    detach_target=False,
+                )
+            )
+            flow_z, flow_z_target, z_len = build_aligned_inputs_and_targets(
+                vae_z,
+                target_feats_len,
+                detach_input=True,
+                detach_target=False,
+            )
+
         _, prompt_logs_target, _ = build_aligned_inputs_and_targets(
             prompt_logs, prompt_feats_len, detach_input=True, detach_target=False
         )
         _, vae_m_target, _ = build_aligned_inputs_and_targets(vae_m, target_feats_len)
-        flow_z, flow_z_target, z_len = build_aligned_inputs_and_targets(
-            flow_z, target_feats_len, detach_input=True, detach_target=False
-        )
         _, vae_logs_target, _ = build_aligned_inputs_and_targets(
             vae_logs, target_feats_len
         )
