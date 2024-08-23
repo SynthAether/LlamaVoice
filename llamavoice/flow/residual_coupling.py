@@ -13,6 +13,7 @@ import torch
 
 from llamavoice.flow.flow import FlipFlow
 from llamavoice.encoder.wavenet import WaveNet
+from llamavoice.utils import check_nan
 
 
 class ResidualAffineCouplingBlock(torch.nn.Module):
@@ -211,6 +212,7 @@ class ResidualAffineCouplingLayer(torch.nn.Module):
             Tensor: Log-determinant tensor for NLL (B,) if not inverse.
 
         """
+        check_nan(x, "input of ResidualAffineCouplingLayer")
         xa, xb = x.split(x.size(1) // 2, dim=1)
         h = self.input_conv(xa) * x_mask
         h = self.encoder(h, x_mask, g=g)
@@ -225,6 +227,7 @@ class ResidualAffineCouplingLayer(torch.nn.Module):
             xb = m + xb * torch.exp(logs) * x_mask
             x = torch.cat([xa, xb], 1)
             logdet = torch.sum(logs, [1, 2])
+            check_nan([x, logdet], "output of ResidualAffineCouplingLayer")
             return x, logdet
         else:
             xb = (xb - m) * torch.exp(-logs) * x_mask

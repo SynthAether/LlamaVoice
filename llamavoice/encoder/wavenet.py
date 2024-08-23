@@ -14,6 +14,7 @@ from typing import Optional
 import torch
 
 from llamavoice.encoder.residual_block import Conv1d1x1, ResidualBlock
+from llamavoice.utils import check_nan
 
 
 class WaveNet(torch.nn.Module):
@@ -133,6 +134,7 @@ class WaveNet(torch.nn.Module):
                 (B, residual_channels, T).
 
         """
+        check_nan(x, "input of Wavenet")
         # encode to hidden representation
         if self.use_first_conv:
             x = self.first_conv(x)
@@ -149,7 +151,7 @@ class WaveNet(torch.nn.Module):
         # apply final layers
         if self.use_last_conv:
             x = self.last_conv(x)
-
+        check_nan(x, "input of Wavenet")
         return x
 
     def remove_weight_norm(self):

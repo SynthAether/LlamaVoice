@@ -25,6 +25,7 @@ from llamavoice.utils import (
     split_hidden_states,
     get_random_segments,
     get_segments,
+    check_nan,
 )
 
 
@@ -170,17 +171,8 @@ class LlamaVoice(PreTrainedModel):
         return z, m, logs
 
     def forward(self, batch: dict) -> Dict[str, Optional[torch.Tensor]]:
-        # length in the last dim
-        """
-        # ("speech", torch.Size([16, 1, 404160])),
-        # ("speech_len", torch.Size([16])),
-        # ("text_token", torch.Size([16, 55])),
-        # ("text_token_len", torch.Size([16])),
-        # ("speech_feat", torch.Size([16, 513, 1578])),
-        # ("speech_feat_len", torch.Size([16])),
-        """
-
         # 1. parse inputs
+        check_nan(batch, "input batch")
         text_token = batch["text_token"]
         text_token_len = batch["text_token_len"]
         target_feats = batch["target_feats"]
@@ -212,11 +204,20 @@ class LlamaVoice(PreTrainedModel):
             prompt_z, prompt_m, prompt_logs, prompt_mask = self.posterior_encoder(
                 prompt_feats, prompt_feats_len
             )
+        check_nan(
+            [vae_z, vae_m, vae_logs, vae_mask],
+            "vae encoder [vae_z, vae_m, vae_logs, vae_mask]",
+        )
+        check_nan(
+            [prompt_z, prompt_m, prompt_logs, prompt_mask],
+            "vae encoder [prompt_z, prompt_m, prompt_logs, prompt_mask]",
+        )
 
         # 3. flow
         flow_z = self.flow(vae_z.detach(), vae_mask)  # (B, H, T_feats)
         with torch.no_grad():
             prompt_flow_z = self.flow(prompt_z.detach(), prompt_mask)
+        check_nan([flow_z, prompt_flow_z], "flow [flow_z, prompt_flow_z]")
 
         # 4. prepare llm input and target
         vae_mask_target = torch.nn.functional.pad(vae_mask, (1, 0), value=1)
@@ -257,11 +258,7 @@ class LlamaVoice(PreTrainedModel):
         )
         # 6. parse llm output
         text_logits, prompt_logits, dist_logits = split_hidden_states(
-            outputs.last_hidden_state,
-            text_token_len,
-            prompt_len,
-            z_len,
-            0
+            outputs.last_hidden_state, text_token_len, prompt_len, z_len, 0
         )
 
         # 7. multi-head prediction

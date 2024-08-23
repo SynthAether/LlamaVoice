@@ -11,6 +11,79 @@ from torch.nn import functional as F
 from torch.nn.utils.rnn import pad_sequence, unpad_sequence
 
 
+import torch
+
+
+def check_nan(x, name="Tensor"):
+    """
+    Checks if a Tensor, a list of Tensors, or a dictionary of Tensors contains NaN values and prints related information.
+
+    Parameters:
+    x (torch.Tensor, list of torch.Tensor, or dict): The Tensor, list of Tensors, or dictionary of Tensors to check.
+    name (str): The name of the Tensor for printing purposes. Defaults to 'Tensor'.
+
+    Returns:
+    bool: Returns True if any Tensor in the input contains NaN values, otherwise returns False.
+    """
+
+    def check_tensor(tensor, tensor_name):
+        """
+        Checks for NaN values in a single Tensor and prints detailed information.
+        """
+        nan_mask = torch.isnan(tensor)
+        has_nan = torch.any(nan_mask)
+
+        if has_nan:
+            nan_count = torch.sum(nan_mask).item()
+            if nan_count == tensor.numel():
+                print(f"Tensor '{tensor_name}' contains only NaN values.")
+            else:
+                non_nan_tensor = tensor[~nan_mask]
+                min_value = non_nan_tensor.min().item()
+                max_value = non_nan_tensor.max().item()
+                mean_value = non_nan_tensor.mean().item()
+
+                print(f"Tensor '{tensor_name}' contains NaN values.")
+                print(f"Shape: {tensor.shape}")
+                print(f"Number of NaNs: {nan_count}")
+                print(f"Min value (excluding NaNs): {min_value}")
+                print(f"Max value (excluding NaNs): {max_value}")
+                print(f"Mean value (excluding NaNs): {mean_value}")
+
+        return has_nan
+
+    if isinstance(x, dict):
+        # If input is a dictionary, check each Tensor in the dictionary
+        has_nan_in_any_tensor = False
+        for key, tensor in x.items():
+            if isinstance(tensor, torch.Tensor):
+                if check_tensor(tensor, f"{tensor_name}, key {key}"):
+                    has_nan_in_any_tensor = True
+            else:
+                print(f"Item '{key}' is not a Tensor. Skipping...")
+        return has_nan_in_any_tensor
+
+    elif isinstance(x, list):
+        # If input is a list, check each Tensor in the list
+        has_nan_in_any_tensor = False
+        for i, tensor in enumerate(x):
+            if isinstance(tensor, torch.Tensor):
+                if check_tensor(tensor, f"{tensor_name}, index {i}"):
+                    has_nan_in_any_tensor = True
+            else:
+                print(f"Item at index {i} is not a Tensor. Skipping...")
+        return has_nan_in_any_tensor
+
+    elif isinstance(x, torch.Tensor):
+        # If input is a single Tensor
+        return check_tensor(x, name)
+
+    else:
+        raise TypeError(
+            "Input must be either a Tensor, a list of Tensors, or a dictionary of Tensors."
+        )
+
+
 def build_aligned_inputs_and_targets(
     input,
     input_length,
