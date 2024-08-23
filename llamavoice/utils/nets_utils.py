@@ -11,7 +11,14 @@ from torch.nn import functional as F
 from torch.nn.utils.rnn import pad_sequence, unpad_sequence
 
 
-def build_aligned_inputs_and_targets(input, input_length, start_token=0, stop_token=0):
+def build_aligned_inputs_and_targets(
+    input,
+    input_length,
+    start_token=0,
+    stop_token=0,
+    detach_input=False,
+    detach_target=True,
+):
     assert input.ndim in [2, 3], "input dimension error"
     inp = F.pad(input, (1, 0), value=start_token)
     if input.ndim == 3:
@@ -26,7 +33,11 @@ def build_aligned_inputs_and_targets(input, input_length, start_token=0, stop_to
         tar = pad_sequence(input_list, batch_first=True)
     input_length = input_length + 1
     assert input.size(-1) + 1 == inp.size(-1) == tar.size(-1), "input length error"
-    return inp, tar.detach(), input_length
+    return (
+        inp.detach() if detach_input else inp,
+        tar.detach() if detach_target else tar,
+        input_length,
+    )
 
 
 def pad_unpad_sequence(
