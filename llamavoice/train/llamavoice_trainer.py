@@ -326,6 +326,7 @@ class LlamaVoiceTrainer(TTSTrainer):
                 self.model[key].train()
         else:
             self.model.train()
+        self.accelerator.wait_for_everyone()
 
         epoch_sum_loss: float = 0.0
         epoch_losses: dict = {}

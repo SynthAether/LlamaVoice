@@ -14,9 +14,11 @@ from tqdm import tqdm
 import re
 import logging
 import json5
+from datetime import timedelta
 import accelerate
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration
+from accelerate import InitProcessGroupKwargs
 from torch.utils.data import ConcatDataset, DataLoader
 from accelerate import DistributedDataParallelKwargs
 from transformers.configuration_utils import PretrainedConfig
@@ -202,7 +204,8 @@ class TTSTrainer(BaseTrainer):
             project_dir=self.exp_dir,
             logging_dir=os.path.join(self.exp_dir, "log"),
         )
-        kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+        kwargs = DistributedDataParallelKwargs(find_unused_parameters=False)
+        process_group_kwargs = InitProcessGroupKwargs(timeout=timedelta(seconds=5400))  # 1.5 hours
         dataloader_config = accelerate.DataLoaderConfiguration(
             dispatch_batches=self.cfg.train.dispatch_batches,
             split_batches=self.cfg.train.split_batches,
@@ -212,7 +215,7 @@ class TTSTrainer(BaseTrainer):
             log_with=self.cfg.train.tracker,
             dataloader_config=dataloader_config,
             project_config=project_config,
-            kwargs_handlers=[kwargs],
+            kwargs_handlers=[kwargs, process_group_kwargs],
         )
         if self.accelerator.is_main_process:
             os.makedirs(project_config.project_dir, exist_ok=True)
