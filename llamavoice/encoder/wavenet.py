@@ -151,7 +151,7 @@ class WaveNet(torch.nn.Module):
         # apply final layers
         if self.use_last_conv:
             x = self.last_conv(x)
-        check_nan(x, "input of Wavenet")
+        check_nan(x, "output of Wavenet")
         return x
 
     def remove_weight_norm(self):

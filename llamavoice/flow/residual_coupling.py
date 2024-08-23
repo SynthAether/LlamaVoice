@@ -99,12 +99,14 @@ class ResidualAffineCouplingBlock(torch.nn.Module):
             Tensor: Output tensor (B, in_channels, T).
 
         """
+        check_nan(x, "input of ResidualAffineCouplingBlock")
         if not inverse:
             for flow in self.flows:
                 x, _ = flow(x, x_mask, g=g, inverse=inverse)
         else:
             for flow in reversed(self.flows):
                 x = flow(x, x_mask, g=g, inverse=inverse)
+        check_nan(x, "output of ResidualAffineCouplingBlock")
         return x
 
     def remove_weight_norm(self):

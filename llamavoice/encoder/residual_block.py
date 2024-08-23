@@ -12,6 +12,7 @@ from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
+from llamavoice.utils import check_nan
 
 
 class Conv1d(torch.nn.Conv1d):
@@ -129,6 +130,7 @@ class ResidualBlock(torch.nn.Module):
             Tensor: Output tensor for skip connection (B, skip_channels, T).
 
         """
+        check_nan(x, "input of ResidualBlock")
         residual = x
         x = F.dropout(x, p=self.dropout_rate, training=self.training)
         x = self.conv(x)
@@ -163,5 +165,5 @@ class ResidualBlock(torch.nn.Module):
         x = x + residual
         if self.scale_residual:
             x = x * math.sqrt(0.5)
-
+        check_nan([x, s], "output of ResidualBlock")
         return x, s
