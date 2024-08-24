@@ -250,18 +250,18 @@ class LlamaVoice(PreTrainedModel):
                     prompt_z,
                     prompt_feats_len,
                     detach_input=True,
-                    detach_target=False,
+                    detach_target=True,
                 )
             )
             flow_z, flow_z_target, z_len = build_aligned_inputs_and_targets(
                 vae_z,
                 target_feats_len,
                 detach_input=True,
-                detach_target=False,
+                detach_target=True,
             )
 
         _, prompt_logs_target, _ = build_aligned_inputs_and_targets(
-            prompt_logs, prompt_feats_len, detach_input=True, detach_target=False
+            prompt_logs, prompt_feats_len, detach_input=True, detach_target=True
         )
         _, vae_m_target, _ = build_aligned_inputs_and_targets(vae_m, target_feats_len)
         _, vae_logs_target, _ = build_aligned_inputs_and_targets(
