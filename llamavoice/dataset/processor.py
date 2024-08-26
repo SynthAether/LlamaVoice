@@ -24,7 +24,7 @@ import torch.nn.functional as F
 AUDIO_FORMAT_SETS = set(["flac", "mp3", "m4a", "ogg", "opus", "wav", "wma"])
 
 
-def parquet_opener(data, mode="train", tts_data={}):
+def parquet_opener(data, mode="train", tts_data={}, split_by_shards=True):
     """Give url or local file, return file descriptor
     Inplace operation.
 
@@ -35,10 +35,25 @@ def parquet_opener(data, mode="train", tts_data={}):
         Iterable[{src, stream}]
     """
     for sample in data:
-        assert "src" in sample
+        assert "src" in sample, "Sample must contain 'src' key"
         url = sample["src"]
+        # Initialize shard parameters if not splitting by shards
+        if not split_by_shards:
+            rank = sample.get("rank")
+            world_size = sample.get("world_size")
+            worker_id = sample.get("worker_id")
+            num_workers = sample.get("num_workers")
+            # Ensure all required shard parameters are present
+            if None in (rank, world_size, worker_id, num_workers):
+                logging.warning("Missing shard parameters in sample: %s", sample)
+                continue
         try:
+            # Read and process the parquet file
             df = pq.read_table(url).to_pandas()
+            if not split_by_shards:
+                df = df.sample(frac=1).reset_index(drop=True)
+                df = df.iloc[rank::world_size].reset_index(drop=True)
+                df = df.iloc[worker_id::num_workers].reset_index(drop=True)
             for i in range(len(df)):
                 if mode == "inference" and df.loc[i, "utt"] not in tts_data:
                     continue

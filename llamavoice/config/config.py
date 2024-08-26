@@ -155,6 +155,7 @@ class Train:
 
 @dataclass(repr=False, eq=False)
 class Dataset:
+    split_by_shards: bool = False
     # tokenizer
     multilingual: bool = True
     num_languages: int = 100

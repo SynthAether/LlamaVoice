@@ -47,6 +47,9 @@ class LlamaVoiceTrainer(TTSTrainer):
         train_data = self.args.train_data_list
         cv_data = self.args.val_data_list
         C = self.cfg.dataset
+        parquet_opener = partial(
+            P.parquet_opener, split_by_shards=C.split_by_shards
+        )
         tokenizer = partial(
             get_tokenizer,
             multilingual=C.multilingual,
@@ -81,7 +84,7 @@ class LlamaVoiceTrainer(TTSTrainer):
         padding = partial(P.padding, use_spk_embedding=False)
 
         data_pipeline = [
-            P.parquet_opener,
+            parquet_opener,
             tokenize,
             filter,
             resample,
@@ -97,6 +100,7 @@ class LlamaVoiceTrainer(TTSTrainer):
             mode="train",
             shuffle=True,
             partition=True,
+            split_by_shards=C.split_by_shards,
         )
         cv_dataset = Dataset(
             cv_data,
@@ -104,6 +108,7 @@ class LlamaVoiceTrainer(TTSTrainer):
             mode="train",
             shuffle=False,
             partition=False,
+            split_by_shards=C.split_by_shards,
         )
         collator = LamaVoiceCollator()
         # do not use persistent_workers=True, as whisper tokenizer opens tiktoken file each time when the for loop starts

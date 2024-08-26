@@ -109,16 +109,20 @@ class DistributedSampler:
 
 class DataList(IterableDataset):
 
-    def __init__(self, lists, shuffle=True, partition=True):
+    def __init__(self, lists, shuffle=True, partition=True, split_by_shards=True):
         self.lists = lists
         self.sampler = DistributedSampler(shuffle, partition)
+        self.split_by_shards = split_by_shards
 
     def set_epoch(self, epoch):
         self.sampler.set_epoch(epoch)
 
     def __iter__(self):
         sampler_info = self.sampler.update()
-        indexes = self.sampler.sample(self.lists)
+        if self.split_by_shards:
+            indexes = self.sampler.sample(self.lists)
+        else:
+            indexes = range(len(self.lists))
         for index in indexes:
             data = dict(src=self.lists[index])
             data.update(sampler_info)
@@ -133,6 +137,7 @@ def Dataset(
     partition=True,
     tts_file="",
     prompt_utt2data="",
+    split_by_shards=True,
 ):
     """Construct dataset from arguments
 
@@ -155,7 +160,9 @@ def Dataset(
         lists = list(
             set([utt2lists[utt] for utt in tts_data.keys() if utt2lists[utt] in lists])
         )
-    dataset = DataList(lists, shuffle=shuffle, partition=partition)
+    dataset = DataList(
+        lists, shuffle=shuffle, partition=partition, split_by_shards=split_by_shards
+    )
     if mode == "inference":
         # map partial arg tts_data in inference mode
         data_pipeline[0] = partial(data_pipeline[0], tts_data=tts_data)
@@ -173,6 +180,9 @@ def test():
 
     C = LlamaVoiceConfig()
     cv_data = train_data = "dump/parquet/dev/data.list"
+    parquet_opener = partial(
+            P.parquet_opener, split_by_shards=C.dataset.split_by_shards
+        )
     get_tokenizer = partial(
         get_tokenizer,
         multilingual=C.dataset.multilingual,
@@ -208,7 +218,7 @@ def test():
     padding = partial(P.padding, use_spk_embedding=False)
 
     data_pipeline = [
-        P.parquet_opener,
+        parquet_opener,
         tokenize,
         filter,
         resample,
@@ -224,6 +234,7 @@ def test():
         mode="train",
         shuffle=True,
         partition=True,
+        split_by_shards=C.dataset.split_by_shards,
     )
     cv_dataset = Dataset(
         cv_data,
@@ -231,6 +242,7 @@ def test():
         mode="train",
         shuffle=False,
         partition=False,
+        split_by_shards=C.dataset.split_by_shards,
     )
 
     collator = LamaVoiceCollator()
